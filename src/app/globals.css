@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Manrope", ui-sans-serif, sans-serif;
+
+  --color-paper: #f3f1e9;
+  --color-card: #fcfbf7;
+  --color-ink: #23271e;
+  --color-mute: #6d7264;
+  --color-line: #e1dcc9;
+  --color-line-soft: #eae6d8;
+
+  --color-brand: #0d6b57;
+  --color-brand-deep: #0a4f41;
+  --color-brand-soft: #e2efe8;
+  --color-accent: #b97a12;
+  --color-accent-soft: #f7ecd8;
+
+  --color-danger: #b3402e;
+  --color-danger-soft: #f7e6e1;
+  --color-ok: #2f7d4f;
+  --color-ok-soft: #e4f0e6;
+  --color-warn: #a86a0e;
+  --color-warn-soft: #f7ecd8;
+
+  --color-night: #16211b;
+  --color-night-2: #1d2b23;
+  --color-night-line: #2b3d32;
+  --color-night-text: #cfdcd3;
+}
+
+html { font-size: 15px; }
+body { background: var(--color-paper); color: var(--color-ink); font-family: var(--font-sans); }
+
+/* Urdu / Pashto typography */
+html[lang="ur"] body, html[lang="ps"] body { font-family: "Noto Naskh Arabic", "Manrope", ui-sans-serif, sans-serif; }
+html[lang="ur"] .font-display, html[lang="ps"] .font-display,
+html[lang="ur"] .tnum, html[lang="ps"] .tnum { font-family: "Noto Naskh Arabic", "Space Grotesk", sans-serif; }
+html[lang="ur"] body { line-height: 1.75; }
+html[lang="ps"] body { line-height: 1.7; }
+
+/* RTL layout fixes */
+[dir="rtl"] .inp { text-align: right; }
+[dir="rtl"] .inp.tnum, [dir="rtl"] input[type="number"] { text-align: left; direction: ltr; }
+[dir="rtl"] .ml-auto { margin-left: 0; margin-right: auto; }
+[dir="rtl"] .ml-1, [dir="rtl"] .ml-1\.5, [dir="rtl"] .ml-2 { margin-left: 0; margin-right: 0.25rem; }
+[dir="rtl"] .ml-2 { margin-right: 0.5rem; }
+[dir="rtl"] .ml-3 { margin-right: 0.75rem; }
+[dir="rtl"] .mr-1 { margin-right: 0; margin-left: 0.25rem; }
+[dir="rtl"] .pl-8 { padding-left: 0.5rem; padding-right: 2rem; }
+[dir="rtl"] .text-left { text-align: right; }
+[dir="rtl"] .text-right { text-align: left; }
+[dir="rtl"] svg { transform: scaleX(1); }
+[dir="rtl"] .rtl-flip { transform: scaleX(-1); }
+
+.tnum { font-variant-numeric: tabular-nums; font-family: var(--font-display); letter-spacing: -0.01em; }
+.font-display { font-family: var(--font-display); }
+
+/* consistent tables */
+.tbl { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.tbl thead th {
+  text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--color-mute); font-weight: 700; padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid var(--color-line); white-space: nowrap; background: transparent;
+}
+.tbl tbody td { padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--color-line-soft); vertical-align: middle; }
+.tbl tbody tr:hover { background: #f6f4ea; }
+.tbl .num { text-align: right; }
+[dir="rtl"] .tbl thead th, [dir="rtl"] .tbl tbody td { text-align: right; }
+[dir="rtl"] .tbl .num { text-align: left; }
+
+/* inputs */
+.inp {
+  width: 100%; border: 1px solid var(--color-line); background: #fff; border-radius: 0.45rem;
+  padding: 0.42rem 0.6rem; font-size: 0.88rem; outline: none; color: var(--color-ink);
+}
+.inp:focus { border-color: var(--color-brand); box-shadow: 0 0 0 3px rgb(13 107 87 / 0.12); }
+.inp::placeholder { color: #a8a896; }
+select.inp { appearance: auto; }
+
+kbd.kbd {
+  font-family: var(--font-display); font-size: 0.65rem; border: 1px solid var(--color-line);
+  border-bottom-width: 2px; border-radius: 0.3rem; padding: 0.05rem 0.3rem; background: #fff; color: var(--color-mute);
+}
+
+/* scrollbars */
+* { scrollbar-width: thin; scrollbar-color: #c9c3ae transparent; }
+
+/* toast animation */
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.toast-in { animation: toast-in 0.18s ease-out; }
+
+/* printing */
+@media print {
+  body { background: #fff; }
+  .no-print { display: none !important; }
+  .print-area { display: block !important; position: absolute; inset: 0; padding: 0; margin: 0; }
+  main { padding: 0 !important; }
+  .tbl tbody tr:hover { background: transparent; }
+  @page { margin: 12mm; }
+}
+
+/* barcode label printing: isolate the label sheet from the rest of the app */
+@media print {
+  body.label-printing * { visibility: hidden !important; }
+  body.label-printing .label-sheet, body.label-printing .label-sheet * { visibility: visible !important; }
+  body.label-printing .label-sheet { position: fixed; inset: 0; overflow: visible; padding: 8mm; background: #fff; }
+}
+
+/* thermal 80mm receipt printing for invoices */
+@media print {
+  body.thermal-print .print-area {
+    max-width: 74mm; margin: 0 auto; padding: 3mm !important; font-size: 10px; border: none !important;
+  }
+  body.thermal-print .print-area .font-display { font-size: 14px; }
+  body.thermal-print .print-area .text-2xl { font-size: 15px; }
+  body.thermal-print .print-area .tbl { font-size: 9px; }
+  body.thermal-print .print-area img { max-height: 34px; }
+  body.thermal-print .print-area .thermal-hide { display: none !important; }
+  @page { margin: 4mm; }
+}
