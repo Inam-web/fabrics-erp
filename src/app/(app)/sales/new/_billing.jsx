@@ -89,6 +89,7 @@ export default function BillingClient({
   const [manualOpen, setManualOpen] = useState(false);
 
   const searchRef = useRef(null);
+  const wholesaleWarehouseRef = useRef(String(defaultWarehouseId));
 
   useEffect(() => {
     try {
@@ -589,9 +590,14 @@ export default function BillingClient({
 
           <button
             type="button"
-            onClick={() =>
-              setSaleKind("wholesale")
-            }
+            onClick={() => {
+              setSaleKind("wholesale");
+              setRetailSource("inventory");
+              setWarehouseId(wholesaleWarehouseRef.current);
+              setQ("");
+              setHi(0);
+              setSearchOpen(false);
+            }}
             className={`rounded-md px-3 py-1.5 text-sm font-bold border ${
               saleKind === "wholesale"
                 ? "bg-brand text-white border-brand"
@@ -605,6 +611,13 @@ export default function BillingClient({
             type="button"
             onClick={() => {
               setSaleKind("retail");
+              if (retailSource === "manual") {
+                setWarehouseId(wholesaleWarehouseRef.current);
+                setRetailSource("inventory");
+              }
+              setQ("");
+              setHi(0);
+              setSearchOpen(false);
 
               if (
                 !rtCustomerId &&
@@ -646,11 +659,13 @@ export default function BillingClient({
 
               <button
                 type="button"
-                onClick={() =>
-                  setRetailSource(
-                    "inventory"
-                  )
-                }
+                onClick={() => {
+                  setRetailSource("inventory");
+                  setWarehouseId(wholesaleWarehouseRef.current);
+                  setQ("");
+                  setHi(0);
+                  setSearchOpen(false);
+                }}
                 className={`rounded-md px-2.5 py-1 text-xs font-bold border ${
                   retailSource ===
                   "inventory"
@@ -666,6 +681,12 @@ export default function BillingClient({
               <button
                 type="button"
                 onClick={() => {
+                  if (retailSource !== "manual") {
+                    wholesaleWarehouseRef.current = warehouseId;
+                  }
+                  setQ("");
+                  setHi(0);
+                  setSearchOpen(false);
                   setRetailSource(
                     "manual"
                   );
@@ -937,11 +958,12 @@ export default function BillingClient({
                 retailSource ===
                   "manual"
               }
-              onChange={(e) =>
-                setWarehouseId(
-                  e.target.value
-                )
-              }
+              onChange={(e) => {
+                setWarehouseId(e.target.value);
+                wholesaleWarehouseRef.current = e.target.value;
+                setQ("");
+                setSearchOpen(false);
+              }}
             >
               {warehouses.map((w) => (
                 <option
@@ -1034,6 +1056,7 @@ export default function BillingClient({
             />
 
             {searchOpen &&
+              !(saleKind === "retail" && retailSource === "manual") &&
               matches.length > 0 && (
                 <div className="absolute z-30 mt-1 w-full rounded-lg border border-line bg-card shadow-xl max-h-80 overflow-y-auto">
 
