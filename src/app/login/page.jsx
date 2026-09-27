@@ -22,11 +22,11 @@ export default function LoginPage() {
           tx.includes("password authentication failed")
             ? "Database password mismatch — the postgres password in your .env doesn't match your local PostgreSQL. Update .env and drizzle.config.json, restart, then refresh."
             : tx.includes("ECONNREFUSED")
-            ? "PostgreSQL is not running. Start it (Docker: docker start faberp-pg), then refresh."
-            : `Database problem: ${tx}`
+              ? "PostgreSQL is not running. Start it (Docker: docker start faberp-pg), then refresh."
+              : `Database problem: ${tx}`
         );
       } else setDbIssue("");
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   async function doLogin(em, pw) {
@@ -91,9 +91,9 @@ export default function LoginPage() {
             </div>
           </div>
           <div className="mt-16 max-w-md">
-            <h1 className="font-display text-4xl font-bold text-white leading-tight">
+            <h1 className="font-display text-4xl font-bold text-white leading-tight" style={{ color: '#ffffff' }}>
               {t("Your registers, khata & ograi —")}<br />
-              <span className="text-[#7fc4a8]">{t("in one system.")}</span>
+              <span className="text-[#7fc4a8]" style={{ color: '#7fc4a8' }}>{t("in one system.")}</span>
             </h1>
             <p className="mt-4 text-sm text-night-text/80 leading-relaxed">
               {t("Sales, customer khata, weekly ograi, supplier books, fabric stock, cash & bank, GST billing and profit & loss — connected, auditable, and built for the speed of a busy wholesale shop.")}
@@ -102,8 +102,8 @@ export default function LoginPage() {
         </div>
         <div className="grid grid-cols-3 gap-3 max-w-md text-xs">
           {[[t("Try the demo"), t("A fully seeded fabric wholesaler — sign in with a demo account")],
-            [t("Start fresh"), t("Create your own business with empty, clean books")],
-            [t("Own your data"), t("Every business is fully isolated from the others")]].map(([a, b]) => (
+          [t("Start fresh"), t("Create your own business with empty, clean books")],
+          [t("Own your data"), t("Every business is fully isolated from the others")]].map(([a, b]) => (
             <div key={a} className="rounded-lg border border-night-line bg-night-2 p-3">
               <div className="font-display font-semibold text-white">{a}</div>
               <div className="mt-1 text-night-text/70 leading-snug">{b}</div>
