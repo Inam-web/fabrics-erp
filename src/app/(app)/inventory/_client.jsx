@@ -8,6 +8,23 @@ import { useT } from "@/lib/useT";
 
 const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 
+// ✅ FIX 1: Helper components moved OUTSIDE NewProductDialog 
+// This prevents React from destroying/recreating DOM nodes on every state change, fixing the focus jump.
+const L = ({ children }) => (
+  <label className="block text-[0.66rem] font-bold uppercase tracking-wider text-mute mb-1">
+    {children}
+  </label>
+);
+
+const Sec = ({ title, sub, children }) => (
+  <section className="rounded-lg border border-line bg-white p-4">
+    <h4 className="font-display font-bold text-[0.95rem]">{title}</h4>
+    {sub && <p className="text-xs text-mute mt-0.5 mb-3">{sub}</p>}
+    {!sub && <div className="mb-3" />}
+    {children}
+  </section>
+);
+
 export default function InventoryClient({ products, byWarehouse, warehouses, movements }) {
   const t = useT();
   const router = useRouter();
@@ -76,13 +93,13 @@ export default function InventoryClient({ products, byWarehouse, warehouses, mov
                     <tr key={p.id} className={p.notForSale ? "opacity-60" : ""}>
                       <td>
                         <a href={`/inventory/${p.id}`} className="hover:underline">
-                        <div className="font-semibold flex items-center gap-1.5">
-                          {p.name}{p.color ? ` · ${p.color}` : ""}
-                          {low && <Badge tone="danger">low</Badge>}
-                          {p.notForSale && <Badge tone="mute">not for sale</Badge>}
-                          {(p.source || "wholesale") === "retail" && <Badge tone="warn">{t("manual retail")}</Badge>}
-                        </div>
-                        <div className="text-[0.66rem] text-mute">{p.design} · {p.quality} · {p.productType}</div>
+                          <div className="font-semibold flex items-center gap-1.5">
+                            {p.name}{p.color ? ` · ${p.color}` : ""}
+                            {low && <Badge tone="danger">low</Badge>}
+                            {p.notForSale && <Badge tone="mute">not for sale</Badge>}
+                            {(p.source || "wholesale") === "retail" && <Badge tone="warn">{t("manual retail")}</Badge>}
+                          </div>
+                          <div className="text-[0.66rem] text-mute">{p.design} · {p.quality} · {p.productType}</div>
                         </a>
                       </td>
                       <td className="text-xs tnum text-mute">{p.sku}<br />{p.hsn ? `HSN ${p.hsn}` : p.barcode}</td>
@@ -143,7 +160,6 @@ export default function InventoryClient({ products, byWarehouse, warehouses, mov
           </div>
         </>
       )}
-
       <AdjustDialog open={adjOpen} onClose={() => setAdjOpen(false)} products={products} warehouses={warehouses} whQty={whQty} />
       <TransferDialog open={trfOpen} onClose={() => setTrfOpen(false)} products={products} warehouses={warehouses} whQty={whQty} />
       <NewProductDialog open={newOpen} onClose={() => setNewOpen(false)} warehouses={warehouses} />
@@ -184,10 +200,11 @@ export function AdjustDialog({ open, onClose, products, warehouses, whQty, defau
       onClose(); router.refresh();
     } catch (e) { setErr(e.message); setBusy(false); }
   }
+
   return (
     <Modal open={open} onClose={onClose} title="Stock adjustment (audited)">
       <div className="space-y-3">
-        <Field label="Product" required><ProductSelect products={products} value={f.productId} onChange={set("productId")} /></Field>
+        <Field label="Product" required> <ProductSelect products={products} value={f.productId} onChange={set("productId")} /> </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Godown">
             <select className="inp" value={f.warehouseId} onChange={set("warehouseId")}>
@@ -196,7 +213,7 @@ export function AdjustDialog({ open, onClose, products, warehouses, whQty, defau
           </Field>
           <Field label="Direction">
             <select className="inp" value={f.direction} onChange={set("direction")}>
-              <option value="out">Stock OUT (−)</option><option value="in">Stock IN (+)</option>
+              <option value="out">Stock OUT (−)</option> <option value="in">Stock IN (+)</option>
             </select>
           </Field>
         </div>
@@ -204,7 +221,7 @@ export function AdjustDialog({ open, onClose, products, warehouses, whQty, defau
           <div className="text-xs text-mute">Current stock in this godown: <b className="tnum text-ink">{qtyFmt(current)}</b></div>
         )}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Quantity" required><input type="number" min="0" step="0.25" className="inp tnum" value={f.qty} onChange={set("qty")} /></Field>
+          <Field label="Quantity" required> <input type="number" min="0" step="0.25" className="inp tnum" value={f.qty} onChange={set("qty")} /> </Field>
           <Field label="Type">
             <select className="inp" value={f.type} onChange={set("type")}>
               <option value="adjust">Adjustment / count correction</option>
@@ -249,10 +266,11 @@ export function TransferDialog({ open, onClose, products, warehouses, whQty, def
       onClose(); router.refresh();
     } catch (e) { setErr(e.message); setBusy(false); }
   }
+
   return (
     <Modal open={open} onClose={onClose} title="Transfer stock between godowns">
       <div className="space-y-3">
-        <Field label="Product" required><ProductSelect products={products} value={f.productId} onChange={set("productId")} /></Field>
+        <Field label="Product" required> <ProductSelect products={products} value={f.productId} onChange={set("productId")} /> </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="From">
             <select className="inp" value={f.from} onChange={set("from")}>
@@ -282,7 +300,10 @@ export function TransferDialog({ open, onClose, products, warehouses, whQty, def
 function NewProductDialog({ open, onClose, warehouses }) {
   const t = useT();
   const router = useRouter();
-  const [more, setMore] = useState(true);
+  
+  // ✅ FIX 2: Explicitly set to false so "More Details" is off by default
+  const [more, setMore] = useState(false); 
+  
   const [f, setF] = useState({
     name: "", group: "", brand: "", color: "", design: "Plain", unit: "meter",
     costPrice: "", wholesalePrice: "",
@@ -321,16 +342,6 @@ function NewProductDialog({ open, onClose, warehouses }) {
     } catch (e) { setErr(e.message); setBusy(false); }
   }
 
-  const L = ({ children }) => <label className="block text-[0.66rem] font-bold uppercase tracking-wider text-mute mb-1">{children}</label>;
-  const Sec = ({ title, sub, children }) => (
-    <section className="rounded-lg border border-line bg-white p-4">
-      <h4 className="font-display font-bold text-[0.95rem]">{title}</h4>
-      {sub && <p className="text-xs text-mute mt-0.5 mb-3">{sub}</p>}
-      {!sub && <div className="mb-3" />}
-      {children}
-    </section>
-  );
-
   return (
     <Modal open={open} onClose={onClose} title={t("Add New Product")} wide>
       <div className="space-y-4">
@@ -338,7 +349,12 @@ function NewProductDialog({ open, onClose, warehouses }) {
           <div className="space-y-3">
             <div>
               <L>{t("Product Name")} <span className="text-danger">*</span></L>
-              <input className="inp" value={f.name} onChange={set("name")} placeholder="e.g. Wash & Wear Navy" autoFocus />
+              <input
+                className="inp"
+                value={f.name}
+                onChange={set("name")}
+                placeholder="e.g. Wash & Wear Navy"
+              />
             </div>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
@@ -403,6 +419,7 @@ function NewProductDialog({ open, onClose, warehouses }) {
             <span className="font-display font-bold text-[0.95rem]">{t("More Details")}</span>
             <span className="text-xs text-mute">{t("Optional information")}</span>
           </button>
+          
           {more && (
             <div className="px-4 pb-4 space-y-4 border-t border-line-soft pt-4">
               <div>
@@ -422,6 +439,7 @@ function NewProductDialog({ open, onClose, warehouses }) {
                   </div>
                 </div>
               </div>
+              
               <div>
                 <div className="text-[0.66rem] font-bold uppercase tracking-wider text-mute mb-2">{t("Other Prices")}</div>
                 <div className="grid sm:grid-cols-2 gap-3">
@@ -431,6 +449,7 @@ function NewProductDialog({ open, onClose, warehouses }) {
                   <div><L>{t("M.R.P. (PKR)")}</L><input type="number" className="inp tnum" value={f.mrp} onChange={set("mrp")} placeholder={t("Optional")} /></div>
                 </div>
               </div>
+              
               <div>
                 <div className="text-[0.66rem] font-bold uppercase tracking-wider text-mute mb-2">{t("Tax & Stock Control")}</div>
                 <div className="grid sm:grid-cols-2 gap-3">
@@ -440,10 +459,12 @@ function NewProductDialog({ open, onClose, warehouses }) {
                   <div><L>{t("Sale Discount %")}</L><input type="number" step="0.5" className="inp tnum" value={f.saleDiscountPct} onChange={set("saleDiscountPct")} placeholder={t("Optional")} /></div>
                 </div>
               </div>
+              
               <div>
                 <L>{t("Description / Notes")}</L>
                 <textarea className="inp" rows="3" value={f.description} onChange={set("description")} placeholder={t("Optional notes about this product")} />
               </div>
+              
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={f.notForSale} onChange={setBool("notForSale")} />
                 <span className="font-bold text-danger">{t("Not For Sale")}</span>

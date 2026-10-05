@@ -21,6 +21,7 @@ export default async function InventoryPage() {
     qty: sql`SUM(${stock.qty}::numeric)`.as("qty"),
     val: sql`SUM(${stock.qty}::numeric * ${stock.avgCost}::numeric)`.as("val"),
   }).from(stock).where(eq(stock.businessId, b)).groupBy(stock.productId).as("sa");
+
   const prods = await db.select({
     id: products.id, sku: products.sku, barcode: products.barcode, name: products.name, design: products.design,
     color: products.color, brand: products.brand, widthIn: products.widthIn, unit: products.unit,
@@ -32,8 +33,8 @@ export default async function InventoryPage() {
     qty: sql`COALESCE(${stockAgg.qty},0)`,
     stockValue: sql`COALESCE(${stockAgg.val},0)`,
   }).from(products).leftJoin(stockAgg, eq(stockAgg.productId, products.id))
-    .where(and(eq(products.businessId, b), sql`COALESCE(${products.source},'wholesale') <> 'retail'`))
-    .orderBy(products.name, products.color);
+  .where(and(eq(products.businessId, b), sql`COALESCE(${products.source},'wholesale') <> 'retail'`))
+  .orderBy(products.name, products.color);
 
   const [whs, byWh, movs] = await Promise.all([
     db.select().from(warehouses).where(eq(warehouses.businessId, b)),
@@ -44,11 +45,11 @@ export default async function InventoryPage() {
       reason: stockMovements.reason, productId: stockMovements.productId,
       product: products.name, color: products.color, warehouse: warehouses.name, userName: users.name,
     }).from(stockMovements)
-      .innerJoin(products, eq(products.id, stockMovements.productId))
-      .innerJoin(warehouses, eq(warehouses.id, stockMovements.warehouseId))
-      .leftJoin(users, eq(users.id, stockMovements.userId))
-      .where(and(eq(stockMovements.businessId, b), sql`COALESCE(${products.source},'wholesale') <> 'retail'`))
-      .orderBy(desc(stockMovements.id)).limit(250),
+    .innerJoin(products, eq(products.id, stockMovements.productId))
+    .innerJoin(warehouses, eq(warehouses.id, stockMovements.warehouseId))
+    .leftJoin(users, eq(users.id, stockMovements.userId))
+    .where(and(eq(stockMovements.businessId, b), sql`COALESCE(${products.source},'wholesale') <> 'retail'`))
+    .orderBy(desc(stockMovements.id)).limit(250),
   ]);
 
   return (
