@@ -23,6 +23,59 @@ export const businesses = pgTable("businesses", {
   taxPct: numeric("tax_pct", { precision: 6, scale: 2 }).default("0"),
   invoiceFooter: text("invoice_footer"),
   logo: text("logo"), // base64 data URL shown on invoices & reports
+  isDemo: boolean("is_demo").default(false),
+  status: text("status").default("active").notNull(), // pending (awaiting owner verification) | active
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const ownerMailbox = pgTable("owner_mailbox", {
+  id: serial("id").primaryKey(),
+  kind: text("kind").default("verification").notNull(), // verification | system
+  businessId: integer("business_id"), // related pending business (nullable)
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  code: text("code"), // 6-digit code, visible only to the platform owner
+  emailed: boolean("emailed").default(false),
+  read: boolean("read").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const businessVerifications = pgTable("business_verifications", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id),
+  codeHash: text("code_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  attempts: integer("attempts").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const passwordResets = pgTable("password_resets", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const demoGrants = pgTable("demo_grants", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id),
+  clientName: text("client_name").notNull(),
+  clientEmail: text("client_email"),
+  code: text("code").notNull().unique(),
+  status: text("status").default("active").notNull(), // active | revoked
+  expiresAt: timestamp("expires_at"),
+  note: text("note"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const demoUsage = pgTable("demo_usage", {
+  id: serial("id").primaryKey(),
+  grantId: integer("grant_id").notNull().references(() => demoGrants.id),
+  module: text("module").notNull(), // sales | purchases | customers | suppliers | inventory | expenses
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -45,6 +98,7 @@ export const users = pgTable(
 export const sessions = pgTable("sessions", {
   token: text("token").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
+  grantId: integer("grant_id"),
   expiresAt: timestamp("expires_at").notNull(),
 });
 
@@ -443,6 +497,18 @@ export const paymentAllocations = pgTable("payment_allocations", {
   docId: integer("doc_id").notNull(),
   amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
   status: text("status").default("final").notNull(), // final | void (void = refunded when its invoice was voided)
+});
+
+export const accountTransfers = pgTable("account_transfers", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id),
+  fromAccountId: integer("from_account_id").notNull().references(() => accounts.id),
+  toAccountId: integer("to_account_id").notNull().references(() => accounts.id),
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+  date: date("date").notNull(),
+  notes: text("notes"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const cheques = pgTable("cheques", {

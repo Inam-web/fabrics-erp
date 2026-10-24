@@ -2,6 +2,7 @@ import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { customers, salesmen } from "@/db/schema";
 import { api, body } from "@/server/api.mjs";
+import { demoGuard } from "@/server/services.mjs";
 import { BizError } from "@/server/util.mjs";
 
 export const GET = api(async ({ user, req }) => {
@@ -25,6 +26,7 @@ export const GET = api(async ({ user, req }) => {
 });
 
 export const POST = api(async ({ user, req }) => {
+  await demoGuard(user, "customers");
   const b = await body(req);
   if (!b.name?.trim()) throw new BizError("Business name is required");
   const [count] = await db.select({ n: sql`COUNT(*)` }).from(customers).where(eq(customers.businessId, user.businessId));

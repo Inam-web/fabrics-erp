@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { sales, saleItems, products } from "@/db/schema";
+import { sales, saleItems, products, payments, customers } from "@/db/schema";
 import { getUser } from "@/server/auth.mjs";
 import { dashboardData, topCustomers, generateSchedules } from "@/server/services.mjs";
 import { money, compact, dateShort, daysBetween, title } from "@/lib/format";
@@ -22,6 +22,17 @@ export default async function DashboardPage() {
   const d = await dashboardData(user);
   const monthFrom = d.today.slice(0, 8) + "01";
   const topCust = await topCustomers(user.businessId, monthFrom, d.today, 6);
+  const [recentSales, recentPays] = await Promise.all([
+    db.select({ id: sales.id, no: sales.invoiceNo, total: sales.total, date: sales.date, name: customers.name, at: sales.createdAt })
+      .from(sales).innerJoin(customers, eq(customers.id, sales.customerId))
+      .where(and(eq(sales.businessId, user.businessId), eq(sales.status, "final"))).orderBy(desc(sales.createdAt)).limit(5),
+    db.select({ id: payments.id, no: payments.receiptNo, amount: payments.amount, date: payments.date, name: customers.name, at: payments.createdAt })
+      .from(payments).innerJoin(customers, eq(customers.id, payments.partyId))
+      .where(and(eq(payments.businessId, user.businessId), eq(payments.partyType, "customer"), eq(payments.status, "final"), eq(payments.kind, "receipt")))
+      .orderBy(desc(payments.createdAt)).limit(5),
+  ]);
+  const recent = [...recentSales.map((r) => ({ ...r, kind: "sale" })), ...recentPays.map((r) => ({ ...r, kind: "pay" }))]
+    .sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 7);
   const kindRows = await db.select({
     kind: sales.saleKind, v: sql`COALESCE(SUM(${sales.total}::numeric),0)`, n: sql`COUNT(*)`,
   }).from(sales).where(and(eq(sales.businessId, user.businessId), gte(sales.date, monthFrom), eq(sales.status, "final"))).groupBy(sales.saleKind);
@@ -148,7 +159,7 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-4">
+      <div className="grid lg:grid-cols-3 gap-4">
         <Card>
           <h2 className="font-display font-bold text-sm mb-2">{t("Top Customers (this month)")}</h2>
           <table className="tbl">
@@ -160,6 +171,22 @@ export default async function DashboardPage() {
               {topCust.length === 0 && <tr><td colSpan="3" className="text-mute text-center py-4">{t("No sales this month yet.")}</td></tr>}
             </tbody>
           </table>
+        </Card>
+        <Card>
+          <h2 className="font-display font-bold text-sm mb-2">{t("Recent activity")}</h2>
+          <div className="space-y-2">
+            {recent.map((r, i) => (
+              <div key={i} className="flex items-center justify-between text-sm border-b border-line-soft pb-1.5 last:border-0">
+                <div className="min-w-0">
+                  <span className={r.kind === "sale" ? "font-semibold" : "font-semibold text-ok"}>{r.kind === "sale" ? r.no : r.no}</span>
+                  <span className="text-mute"> · {r.name}</span>
+                  <div className="text-[0.64rem] text-mute">{r.kind === "sale" ? t("Sales") : t("Collected")} · {dateShort(r.date)}</div>
+                </div>
+                <div className={`tnum font-bold ${r.kind === "pay" ? "text-ok" : ""}`}>{money(r.kind === "sale" ? r.total : r.amount)}</div>
+              </div>
+            ))}
+            {recent.length === 0 && <div className="text-sm text-mute py-6 text-center">{t("No results")}</div>}
+          </div>
         </Card>
         <Card>
           <h2 className="font-display font-bold text-sm mb-2">{t("Top Fabrics (this month)")}</h2>

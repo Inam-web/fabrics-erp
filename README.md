@@ -110,9 +110,10 @@ Open **http://localhost:3000**
 
 | Role | Email | Password |
 |---|---|---|
-| Owner | `owner@afridifabrics.pk` | `afridi123` |
+| Demo control owner (permanent) | `demo@afriditech.pk` | `demo123` |
 
-Or just click one of the demo account buttons on the login screen.
+This account is permanent, cannot be disabled, and is the **only** account that can see
+Settings → Demo Access / Owner Mailbox. Client accounts never see demo controls.
 
 ---
 
@@ -177,3 +178,55 @@ Every financial operation (sale, payment, purchase, return, adjustment, transfer
 runs in a single database transaction that atomically updates the document, the party
 khata balance, the godown stock + movement log, the cash/bank account and the
 double-entry journal — everything rolls back together if any step fails.
+
+---
+
+## Forgot Password — one-time code (OTT) flow
+
+Login → **"Forgot password?"** → `/reset` — a 3-step flow (Email → Code → New password)
+with a professional 6-box OTP entry (auto-advance, paste, backspace).
+
+1. **Email** — enter the registered business email → server issues a **6-digit OTT**
+   (single-use, 10-minute expiry, rate-limited).
+2. **The 6-digit code is emailed ONLY to the owner** (`OWNER_VERIFY_EMAIL`) via Resend.
+   If the configured `MAIL_FROM` sender isn't verified at Resend, delivery automatically
+   retries once with Resend's verified default sender. If delivery still fails, the
+   registration is kept in `pending` state, the client sees the code-entry screen with a
+   clear delivery warning, and **Resend code** retries once email works. The real Resend
+   error (sanitized, never containing the key or code) is returned and logged server-side.
+3. **Without `RESEND_API_KEY`** registration returns a clear 503 configuration error and
+   creates nothing — no mocks, no hidden codes.
+4. **New password** — set it (show/hide eye). All other sessions are signed out and the
+   account opens immediately at the dashboard with the new password.
+
+Unknown emails receive a neutral response (account existence is not revealed when
+email delivery is configured). Codes are stored only as SHA-256 hashes.
+
+## Owner-controlled business registration verification (built-in mail system)
+
+When a client submits **“Start Your Own Business”**, the business + owner account are created in
+**pending** state and a **6-digit verification code** is delivered through the ERP's **own mail
+system** — no third-party service required:
+
+1. **In-app Owner Mailbox** (always on): Settings → **Owner Mailbox** shows the verification
+   email with the code in a copy-button. Only the owner role can see it. Codes are never shown
+   to clients, logs, or public responses.
+2. **Optional real email**: set `SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS` (+`MAIL_FROM`,
+   `OWNER_VERIFY_EMAIL`) in `.env` and the same message is also emailed via our own nodemailer
+   SMTP transport. Delivery failures never block registration — the in-app mailbox always works.
+
+The owner personally shares the code with the client; the client enters it on the registration
+screen to activate the business and sign in. Codes: SHA-256 hashed in DB, 24 h expiry,
+single-use, 5 wrong attempts lock, resend regenerates + invalidates the old code, rate-limited.
+Pending businesses cannot sign in. Resend is **not used anywhere** in this project.
+
+## Demo access codes (owner workflow)
+1. Sign in as **owner** → **Settings → Demo Access**.
+2. Enter client name (+ optional email/note) and expiry (1/7/15/30 days) → **Grant demo access**.
+   A unique `DEMO-XXXXXXXX` code is generated and shown once — **Copy** it or **Send WhatsApp**.
+3. The client opens **/login**, enters the code in **Client demo access**, and gets a
+   server-verified **demo session** (role `demo`) inside the isolated demo business.
+4. Limits are enforced **server-side**: 5 new entries per module (sales, purchases,
+   customers, suppliers, inventory, expenses). Remaining counts show in Settings and in
+   the demo user's banner. Reads stay unlimited. Revoke/expire blocks new logins and
+   kills active demo sessions.

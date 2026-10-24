@@ -10,21 +10,44 @@ const CATS = ["all", "vip", "wholesale", "regular", "cash", "new"];
 
 export function CustomersTable({ customers }) {
   const t = useT();
+  const [list, setList] = useState("business"); // business accounts vs retail/counter buyers
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("all");
   const [onlyDue, setOnlyDue] = useState(false);
+  const isCounter = (c) => c.paymentTerms === "cash" || c.code === "WALKIN";
+  const scoped = customers.filter((c) => (list === "business" ? !isCounter(c) : isCounter(c)));
 
-  const rows = useMemo(() => customers.filter((c) => {
+  const rows = useMemo(() => scoped.filter((c) => {
     if (cat !== "all" && c.category !== cat) return false;
     if (onlyDue && Number(c.balance) <= 0) return false;
     if (q && !`${c.name} ${c.ownerName || ""} ${c.phone || ""} ${c.code} ${c.area || ""}`.toLowerCase().includes(q.toLowerCase())) return false;
     return true;
-  }), [customers, q, cat, onlyDue]);
+  }), [scoped, q, cat, onlyDue]);
+
+  const businessCount = customers.filter((c) => !isCounter(c)).length;
+  const retailCount = customers.length - businessCount;
 
   const totalBal = rows.reduce((a, c) => a + Math.max(0, Number(c.balance)), 0);
 
   return (
     <div>
+      <div className="flex flex-wrap items-center gap-2 mb-3 no-print">
+        <div className="flex items-center rounded-lg bg-black/5 p-1">
+          <button type="button" onClick={() => setList("business")}
+            className={`rounded-md px-3.5 py-1.5 text-sm font-bold transition-colors ${list === "business" ? "bg-brand text-white shadow-sm" : "text-mute hover:text-ink"}`}>
+            {t("Business Accounts")} ({businessCount})
+          </button>
+          <button type="button" onClick={() => setList("retail")}
+            className={`rounded-md px-3.5 py-1.5 text-sm font-bold transition-colors ${list === "retail" ? "bg-accent text-white shadow-sm" : "text-mute hover:text-ink"}`}>
+            {t("Retail / Counter Buyers")} ({retailCount})
+          </button>
+        </div>
+      </div>
+      {list === "retail" && (
+        <div className="mb-3 rounded-lg border border-accent/30 bg-accent-soft px-4 py-2.5 text-[0.75rem] text-[#7a5a10] no-print">
+          {t("One-time counter buyers created during retail sales — kept separate from your business accounts. Their invoices and payments remain fully recorded.")}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2 mb-3 no-print">
         <input className="inp !w-64" placeholder={t("Search") + "…"} value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="inp !w-40" value={cat} onChange={(e) => setCat(e.target.value)}>
@@ -56,11 +79,11 @@ export function CustomersTable({ customers }) {
                   <td className="text-xs">{c.paymentTerms}</td>
                   <td className="num tnum">{Number(c.weeklyOgrai) ? money(c.weeklyOgrai) : "—"}</td>
                   <td className="num tnum text-mute">{Number(c.creditLimit) ? money(c.creditLimit) : "—"}</td>
-                  <td className={`num tnum font-bold ${bal > 0 ? (over ? "text-danger" : "text-ink") : "text-ok"}`}>{money(bal)}</td>
+                  <td className={`num tnum font-bold ${bal > 0 ? (over ? "text-danger" : "text-warn") : "text-ok"}`}>{money(bal)}</td>
                 </tr>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan="8" className="text-center text-mute py-8">{t("No customers match.")}</td></tr>}
+            {rows.length === 0 && <tr><td colSpan="8" className="text-center text-mute py-8">{list === "retail" ? t("No counter buyers yet — they appear here automatically when created during a retail sale.") : t("No customers match.")}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -68,13 +91,11 @@ export function CustomersTable({ customers }) {
   );
 }
 
-export function NewCustomerButton({ salesmen }) {
+export function CustomerFormModal({ open, onClose, salesmen = [], onCreated }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [f, setF] = useState({ name: "", ownerName: "", phone: "", area: "", category: "wholesale", priceLevel: "wholesale", paymentTerms: "weekly", weeklyOgrai: "", creditLimit: "", openingBalance: "", salesmanId: "", notes: "" });
-  const router = useRouter();
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
   async function save() {
@@ -83,15 +104,15 @@ export function NewCustomerButton({ salesmen }) {
       const res = await fetch("/api/customers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, salesmanId: f.salesmanId || null }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      toast(`Customer ${f.name} created`);
-      router.push(`/customers/${data.id}`);
+      toast(`${t("Customer")} ${f.name} — ${t("created")}`);
+      const created = { id: data.id, name: f.name.trim(), code: data.code || "", category: f.category, priceLevel: f.priceLevel, balance: Number(f.openingBalance || 0) };
+      setF({ name: "", ownerName: "", phone: "", area: "", category: "wholesale", priceLevel: "wholesale", paymentTerms: "weekly", weeklyOgrai: "", creditLimit: "", openingBalance: "", salesmanId: "", notes: "" });
+      onCreated(created);
     } catch (e) { setErr(e.message); setBusy(false); }
   }
 
   return (
-    <>
-      <Button onClick={() => setOpen(true)}>+ {t("Customer")}</Button>
-      <Modal open={open} onClose={() => setOpen(false)} title="New customer account" wide>
+    <Modal open={open} onClose={onClose} title={`+ ${t("Add Customer")}`} wide>
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Business name" required><input className="inp" value={f.name} onChange={set("name")} autoFocus /></Field>
           <Field label="Owner name"><input className="inp" value={f.ownerName} onChange={set("ownerName")} /></Field>
@@ -129,10 +150,22 @@ export function NewCustomerButton({ salesmen }) {
         </div>
         <div className="mt-4"><ErrorNote error={err} /></div>
         <div className="flex justify-end gap-2 mt-4">
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button onClick={save} disabled={busy || !f.name.trim()}>{busy ? "Saving…" : "Create customer"}</Button>
+          <Button variant="outline" onClick={onClose}>{t("Cancel")}</Button>
+          <Button onClick={save} disabled={busy || !f.name.trim()}>{busy ? t("Saving…") : t("Create customer")}</Button>
         </div>
-      </Modal>
+    </Modal>
+  );
+}
+
+export function NewCustomerButton({ salesmen }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>+ {t("Customer")}</Button>
+      <CustomerFormModal open={open} onClose={() => setOpen(false)} salesmen={salesmen}
+        onCreated={(data) => { setOpen(false); router.push(`/customers/${data.id}`); }} />
     </>
   );
 }

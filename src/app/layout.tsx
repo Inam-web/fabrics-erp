@@ -5,7 +5,7 @@ import "./globals.css";
 import { LangProvider } from "@/components/LangProvider";
 
 export const metadata: Metadata = {
-  title: "Afridi Fabrics — Wholesale ERP",
+  title: "AfridiTech ERP — Wholesale Fabric Business Management",
   description: "Production-grade wholesale fabric business ERP: billing, khata, ograi, inventory, accounting.",
 };
 
@@ -17,6 +17,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     <html lang={code} dir={rtl ? "rtl" : "ltr"}>
       <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta name="theme-color" content="#141d17" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link

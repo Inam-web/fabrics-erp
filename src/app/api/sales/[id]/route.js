@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { sales, saleItems, products, customers, salesmen, warehouses, payments, paymentAllocations, businesses } from "@/db/schema";
 import { api, body } from "@/server/api.mjs";
-import { voidSale } from "@/server/services.mjs";
+import { voidSale, editSale } from "@/server/services.mjs";
 import { BizError } from "@/server/util.mjs";
 
 export const GET = api(async ({ user, ctx }) => {
@@ -33,6 +33,9 @@ export const POST = api(async ({ user, ctx, req }) => {
   if (b.action === "void") {
     await voidSale(user, Number(params.id), b.reason);
     return { ok: true };
+  }
+  if (b.action === "edit") {
+    return editSale(user, Number(params.id), b);
   }
   throw new BizError("Unknown action");
 });

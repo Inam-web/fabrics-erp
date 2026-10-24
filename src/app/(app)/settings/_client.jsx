@@ -1,13 +1,14 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Modal, Field, Badge, ErrorNote, toast } from "@/components/ui";
+import { Button, Modal, Field, Badge, Card, ErrorNote, toast } from "@/components/ui";
 import { money, dtFmt, dateFmt } from "@/lib/format";
 import { useT } from "@/lib/useT";
+import { BRAND, brandMark } from "@/lib/brand.mjs";
 
 const ROLES = [["owner", "Owner / Super Admin"], ["manager", "Manager"], ["accountant", "Accountant"], ["cashier", "Cashier"], ["salesman", "Salesman"], ["warehouse", "Warehouse Staff"]];
 
-export default function SettingsClient({ business, users, salesmen, routes, audit, closings, warehouses, employees, accounts, canManage }) {
+export default function SettingsClient({ business, users, salesmen, routes, audit, closings, warehouses, employees, accounts, canManage, demo, isOwner, mailbox, isDemoOwner }) {
   const t = useT();
   const [tab, setTab] = useState("business");
   const router = useRouter();
@@ -15,7 +16,7 @@ export default function SettingsClient({ business, users, salesmen, routes, audi
   return (
     <div className="space-y-4">
       <div className="flex gap-1 border-b border-line flex-wrap">
-        {[["business", t("Business Profile")], ["users", t("Users & Roles")], ["salesmen", t("Salesmen & Routes")], ["staff", t("Staff & Payroll")], ["warehouses", t("Godowns")], ["audit", t("Audit Log")], ["closings", t("Day Closings")]].map(([k, l]) => (
+        {[["business", t("Business Profile")], ["users", t("Users & Roles")], ["salesmen", t("Salesmen & Routes")], ["staff", t("Staff & Payroll")], ["warehouses", t("Godowns")], ...(isDemoOwner && demo ? [["demo", t("Demo Access")]] : []), ...(isDemoOwner ? [["mailbox", `${t("Owner Mailbox")}${(mailbox || []).some((m) => !m.read) ? " ●" : ""}`]] : []), ["audit", t("Audit Log")], ["closings", t("Day Closings")]].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-3 py-2 text-sm font-semibold border-b-2 -mb-px ${tab === k ? "border-brand text-brand-deep" : "border-transparent text-mute hover:text-ink"}`}>{l}</button>
         ))}
@@ -25,6 +26,8 @@ export default function SettingsClient({ business, users, salesmen, routes, audi
       {tab === "users" && <UsersPanel users={users} canManage={canManage} router={router} />}
       {tab === "salesmen" && <SalesmenPanel salesmen={salesmen} routes={routes} canManage={canManage} router={router} />}
       {tab === "warehouses" && <WarehousesPanel warehouses={warehouses} canManage={canManage} router={router} />}
+      {tab === "demo" && demo && <DemoAccessPanel demo={demo} />}
+      {tab === "mailbox" && isDemoOwner && <OwnerMailboxPanel mailbox={mailbox || []} />}
       {tab === "staff" && <StaffPanel employees={employees || []} accounts={accounts || []} canManage={canManage} router={router} />}
 
       {tab === "audit" && (
@@ -116,6 +119,14 @@ function BusinessForm({ business, canManage }) {
       <Field label="Invoice footer message"><textarea className="inp" rows="2" value={f.invoiceFooter} onChange={set("invoiceFooter")} disabled={!canManage} /></Field>
       <ErrorNote error={err} />
       {canManage && <Button onClick={save} disabled={busy}>{busy ? t("Saving…") : t("Save business profile")}</Button>}
+      <div className="mt-4 pt-4 border-t border-line">
+        <h3 className="font-display font-bold text-sm mb-2">Brand identity</h3>
+        <div className="flex items-center gap-4 rounded-lg border border-line bg-paper px-4 py-3">
+          <img src={f.logo || BRAND.mark} alt="" className="h-11 w-11 rounded-xl shadow-sm" />
+          <img src={BRAND.lockupDark} alt="AfridiTech — Wholesale Retail ERP" className="h-9 w-auto" />
+          <span className="text-xs text-mute ms-auto">{t("Used across sidebar, login, invoices, prints & reports.")}</span>
+        </div>
+      </div>
       <div className="mt-4 pt-4 border-t border-line">
         <h3 className="font-display font-bold text-sm mb-1">Backup</h3>
         <p className="text-xs text-mute mb-2">Download every table of this business as a single JSON file (customers, khata, invoices, stock, payments, journal, audit trail…).</p>
@@ -390,5 +401,127 @@ function SalesmenPanel({ salesmen, routes, canManage, router }) {
         </div>
       </Modal>
     </div>
+  );
+}
+
+function DemoAccessPanel({ demo }) {
+  const t = useT();
+  const router = useRouter();
+  const [f, setF] = useState({ clientName: "", clientEmail: "", note: "" });
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  const [newCode, setNewCode] = useState("");
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  async function act(action, id, status) {
+    setBusy(true); setErr("");
+    try {
+      const res = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id, status }) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error);
+      router.refresh();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+  async function create() {
+    setBusy(true); setErr("");
+    try {
+      const res = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create_grant", ...f }) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error);
+      setNewCode(d.code);
+      setF({ clientName: "", clientEmail: "", note: "" });
+      router.refresh();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+  return (
+    <div className="space-y-4">
+      <Card>
+        <h3 className="font-display font-bold text-sm">{t("Demo Access Control")}</h3>
+        <p className="text-xs text-mute mt-1">{t("Demo access is invitation-only. Share a code with an authorized client; each code allows")} {demo.limit} {t("entries per module")} ({demo.modules.join(", ")}). {t("Demo data is fully separate from real business data.")}</p>
+        {newCode && (
+          <div className="mt-3 rounded-lg border border-ok/30 bg-ok-soft px-4 py-3 text-sm">
+            <div className="font-bold text-ok">{t("New access code")}</div>
+            <div className="tnum text-lg font-extrabold mt-1 select-all">{newCode}</div>
+            <div className="text-[0.7rem] text-mute mt-1">{t("Share it securely with the client. It appears nowhere publicly.")}</div>
+          </div>
+        )}
+        <div className="grid sm:grid-cols-3 gap-3 mt-4">
+          <Field label={t("Client name")} required><input className="inp" value={f.clientName} onChange={set("clientName")} /></Field>
+          <Field label={t("Client email")}><input className="inp" value={f.clientEmail} onChange={set("clientEmail")} /></Field>
+          <Field label={t("Note")}><input className="inp" value={f.note} onChange={set("note")} /></Field>
+        </div>
+        <div className="mt-3"><ErrorNote error={err} /></div>
+        <Button className="mt-3" onClick={create} disabled={busy || !f.clientName.trim()}>{busy ? t("Saving…") : t("Grant demo access")}</Button>
+      </Card>
+      <Card>
+        <h3 className="font-display font-bold text-sm mb-2">{t("Authorized clients")} · {demo.business}</h3>
+        <div className="overflow-x-auto">
+          <table className="tbl">
+            <thead><tr><th>{t("Client")}</th><th>{t("Code")}</th><th>{t("Status")}</th><th>{t("Usage")} ({demo.limit}/{t("module")})</th><th>{t("Created")}</th><th></th></tr></thead>
+            <tbody>
+              {demo.grants.map((g) => (
+                <tr key={g.id}>
+                  <td className="font-semibold">{g.clientName}{g.clientEmail ? <span className="text-mute text-xs"> · {g.clientEmail}</span> : null}</td>
+                  <td className="tnum font-bold">{g.code}</td>
+                  <td>{g.status === "active" ? <Badge tone="ok">active</Badge> : <Badge tone="danger">revoked</Badge>}</td>
+                  <td className="text-xs tnum">{demo.modules.map((m) => `${m.slice(0, 4)}:${g.usage[m] || 0}`).join(" · ")}</td>
+                  <td className="text-xs text-mute">{new Date(g.createdAt).toLocaleDateString()}</td>
+                  <td className="whitespace-nowrap">
+                    {g.status === "active"
+                      ? <button className="text-xs font-bold text-danger hover:underline" disabled={busy} onClick={() => act("set_grant_status", g.id, "revoked")}>{t("Revoke")}</button>
+                      : <button className="text-xs font-bold text-ok hover:underline" disabled={busy} onClick={() => act("set_grant_status", g.id, "active")}>{t("Reactivate")}</button>}
+                    <button className="text-xs font-bold text-mute hover:underline ms-3" disabled={busy} onClick={() => act("delete_grant", g.id)}>{t("Delete")}</button>
+                  </td>
+                </tr>
+              ))}
+              {demo.grants.length === 0 && <tr><td colSpan="6" className="text-mute text-center py-6">{t("No demo access granted yet.")}</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function OwnerMailboxPanel({ mailbox }) {
+  const t = useT();
+  const router = useRouter();
+  const [openId, setOpenId] = useState(null);
+  async function markRead(id) {
+    await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mark_mail_read", id }) });
+    router.refresh();
+  }
+  return (
+    <Card>
+      <h3 className="font-display font-bold text-sm">{t("Owner Mailbox")}</h3>
+      <p className="text-xs text-mute mt-1 mb-3">{t("Verification codes and system messages are delivered here securely. Codes are never shown to clients.")}</p>
+      <div className="space-y-2">
+        {mailbox.map((m) => (
+          <div key={m.id} className={`rounded-lg border px-4 py-3 ${m.read ? "border-line bg-white" : "border-brand/40 bg-brand-soft/40"}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-bold truncate">{!m.read && <span className="inline-block h-2 w-2 rounded-full bg-brand me-1.5" />}{m.subject}</div>
+                <div className="text-[0.68rem] text-mute">{new Date(m.createdAt).toLocaleString()}</div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {m.code && (
+                  <button
+                    className="tnum rounded-lg bg-[#12263f] text-white font-extrabold px-3 py-1.5 tracking-[0.3em] text-sm"
+                    onClick={() => { navigator.clipboard?.writeText(m.code); toast(t("Code copied")); if (!m.read) markRead(m.id); }}>
+                    {m.code}
+                  </button>
+                )}
+                {!m.read && <button className="text-xs font-bold text-brand hover:underline" onClick={() => markRead(m.id)}>{t("Mark read")}</button>}
+              </div>
+            </div>
+            {openId === m.id && <pre className="mt-2 whitespace-pre-wrap text-xs text-mute bg-paper rounded-md p-3">{m.body}</pre>}
+            <button className="mt-1.5 text-[0.68rem] font-bold text-mute hover:text-ink" onClick={() => setOpenId(openId === m.id ? null : m.id)}>
+              {openId === m.id ? t("Hide message") : t("View message")}
+            </button>
+          </div>
+        ))}
+        {mailbox.length === 0 && <div className="text-sm text-mute py-6 text-center">{t("No messages yet.")}</div>}
+      </div>
+    </Card>
   );
 }

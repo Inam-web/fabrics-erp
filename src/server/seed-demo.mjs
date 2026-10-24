@@ -4,6 +4,7 @@ import { db } from "@/db";
 import * as s from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
 import * as svc from "./services.mjs";
+const DEMO_OWNER = svc.DEMO_OWNER;
 import { addDays, weekMonday } from "./util.mjs";
 
 let seedState = 20260214;
@@ -29,9 +30,9 @@ export async function seedDemoBusiness() {
   const B = biz.id;
 
   await db.insert(s.users).values([
-    { businessId: B, name: "Haji Karim Afridi", email: "owner@afridifabrics.pk", passwordHash: hash("afridi123"), role: "owner", phone: "0300-9001122" },
+    { businessId: B, name: "Haji Karim Afridi", email: DEMO_OWNER.email, passwordHash: hash(DEMO_OWNER.password), role: "owner", phone: "0300-9001122" },
   ]);
-  const ownerRows = await db.select().from(s.users).where(eq(s.users.email, "owner@afridifabrics.pk"));
+  const ownerRows = await db.select().from(s.users).where(eq(s.users.email, DEMO_OWNER.email));
   const owner = { id: ownerRows[0].id, businessId: B, role: "owner", name: ownerRows[0].name };
 
   const [br1] = await db.insert(s.branches).values({ businessId: B, name: "Saddar Main Branch", address: "Cloth Market, Saddar, Peshawar" }).returning({ id: s.branches.id });
@@ -85,7 +86,7 @@ export async function seedDemoBusiness() {
     if (pref && Number(pref.balance) > amount) return prefer;
     const ok = accs.filter((a) => Number(a.balance) > amount);
     if (ok.length) return ok[Math.floor(rnd() * ok.length)].id;
-    return CASH_MAIN;
+    return null; // never overdraw demo accounts
   }
 
   const fabrics = [
@@ -219,11 +220,12 @@ export async function seedDemoBusiness() {
     const paidRatio = rnd() < 0.35 ? 1 : rnd() < 0.5 ? 0 : pick([0.25, 0.5, 0.7]);
     const paidAmt = r2(subtotal * paidRatio);
     try {
+      const accId = paidAmt > 0 ? await outflowAccount(rnd() < 0.5 ? BANK_HBL : BANK_MEEZAN, paidAmt) : CASH_MAIN;
       await svc.createPurchase(owner, {
         supplierId: pick(supplierIds), warehouseId: rnd() < 0.6 ? WH_GODOWN : WH_MAIN, date,
         refNo: `MI/${ri(10000, 99999)}`, lines,
-        paid: paidAmt, method: paidRatio > 0 ? (rnd() < 0.5 ? "bank_transfer" : "cheque") : "cash",
-        accountId: await outflowAccount(rnd() < 0.5 ? BANK_HBL : BANK_MEEZAN, paidAmt),
+        paid: accId ? paidAmt : 0, method: paidRatio > 0 ? (rnd() < 0.5 ? "bank_transfer" : "cheque") : "cash",
+        accountId: accId || CASH_MAIN,
         cheque: { bank: pick(["HBL", "UBL", "MCB", "Meezan"]), chequeNo: String(ri(100000, 999999)), expectedDate: addDays(date, ri(7, 21)) },
       });
     } catch (e) { console.log("  purchase skipped:", e.message); }
@@ -352,9 +354,11 @@ export async function seedDemoBusiness() {
   for (const sp of owingSuppliers) {
     const amt = r2(Number(sp.balance) * pick([0.15, 0.25, 0.4]));
     try {
+      const accId = await outflowAccount(rnd() < 0.5 ? BANK_HBL : BANK_MEEZAN, amt);
+      if (!accId) continue; // keep demo books realistic — no overdrawn accounts
       await svc.recordPayment(owner, {
         partyType: "supplier", partyId: sp.id, date: addDays(today, -ri(1, 40)), amount: amt,
-        method: rnd() < 0.6 ? "cheque" : "bank_transfer", accountId: await outflowAccount(rnd() < 0.5 ? BANK_HBL : BANK_MEEZAN, amt),
+        method: rnd() < 0.6 ? "cheque" : "bank_transfer", accountId: accId,
         cheque: { bank: pick(["HBL", "Meezan", "UBL"]), chequeNo: String(ri(200000, 999999)), expectedDate: addDays(today, ri(2, 15)) },
         notes: "Supplier payment",
       });
@@ -368,14 +372,22 @@ export async function seedDemoBusiness() {
       const catIdx = pick([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
       const amount = catIdx === 3 ? ri(25, 60) * 1000 : catIdx === 0 || catIdx === 1 ? ri(30, 80) * 1000 : ri(3, 120) * 100;
       try {
+        const accId = await outflowAccount(rnd() < 0.8 ? CASH_MAIN : BANK_HBL, amount);
+        if (!accId) continue; // never overdraw demo accounts
         await svc.addExpense(owner, {
-          date, categoryId: CAT[catIdx], amount, accountId: rnd() < 0.8 ? CASH_MAIN : BANK_HBL,
+          date, categoryId: CAT[catIdx], amount, accountId: accId,
           description: pick(["Shop expense", "Weekly expense", "Godown expense", "Market expense", "Daily expense"]),
         });
       } catch (e) { }
     }
   }
   console.log("  expenses done");
+
+  // realistic cash deposits into banks (uses the transfer service)
+  try {
+    await svc.transferBetweenAccounts(owner, { fromAccountId: CASH_MAIN, toAccountId: BANK_HBL, amount: 1500000, notes: "Cash deposit" });
+    await svc.transferBetweenAccounts(owner, { fromAccountId: CASH_MAIN, toAccountId: BANK_MEEZAN, amount: 600000, notes: "Cash deposit" });
+  } catch (e) { }
 
   const recentSales = await db.select({ id: s.sales.id, customerId: s.sales.customerId }).from(s.sales).where(eq(s.sales.status, "final")).orderBy(sql`${s.sales.id} DESC`).limit(30);
   for (let i = 0; i < 3 && i < recentSales.length; i++) {
@@ -415,7 +427,7 @@ export async function seedDemoBusiness() {
 ---------------------------------------------------------------------
  NOTE: This is DEMO DATA, separate from real business data.
  Login credentials (demo):
-   Owner      owner@afridifabrics.pk      afridi123
+   Owner      demo@afriditech.pk          demo123
 =====================================================================`);
 }
 

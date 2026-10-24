@@ -3,15 +3,18 @@ import { useMemo, useState } from "react";
 import { money, dateShort } from "@/lib/format";
 import { Button } from "./ui";
 import { useT } from "@/lib/useT";
+import { BRAND } from "@/lib/brand.mjs";
 
 const RANGES = [["all", "All history"], ["30", "Last 30 days"], ["90", "Last 90 days"], ["year", "This year"]];
 
 export default function LedgerView({ rows, party, kind, whatsappPhone, exportHref }) {
   const t = useT();
+  const [q, setQ] = useState("");
   const [range, setRange] = useState("all");
 
   const filtered = useMemo(() => {
-    if (range === "all") return rows;
+    const base = q.trim() ? rows.filter((r) => String(r.desc).toLowerCase().includes(q.trim().toLowerCase())) : rows;
+    if (range === "all") return base;
     const now = new Date();
     let from;
     if (range === "year") from = `${now.getFullYear()}-01-01`;
@@ -19,8 +22,8 @@ export default function LedgerView({ rows, party, kind, whatsappPhone, exportHre
       const d = new Date(); d.setDate(d.getDate() - Number(range));
       from = d.toISOString().slice(0, 10);
     }
-    return rows.filter((r) => r.date >= from);
-  }, [rows, range]);
+    return base.filter((r) => r.date >= from);
+  }, [rows, range, q]);
 
   const totals = useMemo(() => ({
     debit: filtered.reduce((a, r) => a + Number(r.debit || 0), 0),
@@ -31,13 +34,19 @@ export default function LedgerView({ rows, party, kind, whatsappPhone, exportHre
   const whatsappMsg = useMemo(() => {
     const label = kind === "customer" ? "outstanding balance" : "payable balance";
     return encodeURIComponent(
-      `Assalam-o-Alaikum ${party.name}.\nYour current ${label} with Afridi Fabrics Wholesale is Rs ${Math.abs(balance).toLocaleString()}.\n${kind === "customer" && party.weeklyOgrai > 0 ? `This week's expected ograi is Rs ${Number(party.weeklyOgrai).toLocaleString()}.\n` : ""}Shukriya.`
+      `Assalam-o-Alaikum ${party.name}.\nYour current ${label} with our store is Rs ${Math.abs(balance).toLocaleString()}.\n${kind === "customer" && party.weeklyOgrai > 0 ? `This week's expected ograi is Rs ${Number(party.weeklyOgrai).toLocaleString()}.\n` : ""}Shukriya.`
     );
   }, [party, balance, kind]);
 
   return (
     <div>
+      <div className="hidden print:flex items-center gap-2 mb-3">
+        <img src={BRAND.mark} alt="" className="h-8 w-8 rounded-md" />
+        <span className="font-display font-bold">{BRAND.name} ERP</span>
+        <span className="text-xs text-mute">· {new Date().toLocaleDateString()}</span>
+      </div>
       <div className="flex flex-wrap items-center gap-2 mb-3 no-print">
+        <input className="inp !w-56 text-xs" placeholder={t("Search") + "…"} value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="inp !w-auto text-xs" value={range} onChange={(e) => setRange(e.target.value)}>
           {RANGES.map(([v, l]) => <option key={v} value={v}>{t(l)}</option>)}
         </select>

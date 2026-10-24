@@ -1,6 +1,8 @@
 // Business service layer. All financial operations run in DB transactions.
 import { and, asc, desc, eq, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { db } from "@/db";
+import { demoUsage } from "@/db/schema";
 import * as s from "@/db/schema";
 import { BizError, canOverride, n0, r2, todayStr, addDays, weekMonday } from "./util.mjs";
 
@@ -113,14 +115,124 @@ async function createChequeRow(t, businessId, direction, partyType, partyId, ch,
   return row.id;
 }
 
+// ================= ACCOUNT TRANSFERS (cash<->bank, never income/expense) =================
+export async function transferBetweenAccounts(user, input) {
+  const amount = r2(input.amount);
+  if (!(amount > 0)) throw new BizError("Transfer amount must be greater than zero");
+  const fromId = Number(input.fromAccountId), toId = Number(input.toAccountId);
+  if (fromId === toId) throw new BizError("Source and destination accounts must differ");
+  return db.transaction(async (t) => {
+    const [from] = await t.select().from(s.accounts).where(and(eq(s.accounts.id, fromId), eq(s.accounts.businessId, B(user)))).for("update").limit(1);
+    const [to] = await t.select().from(s.accounts).where(and(eq(s.accounts.id, toId), eq(s.accounts.businessId, B(user)))).for("update").limit(1);
+    if (!from || !to) throw new BizError("Account not found", 404);
+    if (n0(from.balance) < amount) throw new BizError(`Insufficient balance in ${from.name} (available Rs ${n0(from.balance).toLocaleString()})`);
+    await t.update(s.accounts).set({ balance: sql`${s.accounts.balance}::numeric - ${amount}` }).where(eq(s.accounts.id, fromId));
+    await t.update(s.accounts).set({ balance: sql`${s.accounts.balance}::numeric + ${amount}` }).where(eq(s.accounts.id, toId));
+    const [tr] = await t.insert(s.accountTransfers).values({
+      businessId: B(user), fromAccountId: fromId, toAccountId: toId, amount: String(amount),
+      date: input.date || todayStr(), notes: input.notes || null, createdBy: user.id,
+    }).returning({ id: s.accountTransfers.id });
+    await postJournal(t, B(user), {
+      date: input.date || todayStr(), refType: "transfer", refId: tr.id,
+      memo: `Transfer ${from.name} → ${to.name}`,
+      lines: [
+        { code: to.type === "bank" ? "BANK" : "CASH", entityId: toId, debit: amount },
+        { code: from.type === "bank" ? "BANK" : "CASH", entityId: fromId, credit: amount },
+      ],
+    });
+    await audit(t, user, `Account transfer ${amount} (${from.name} → ${to.name})`, "account_transfer", tr.id, { new: { from: fromId, to: toId, amount } });
+    return { id: tr.id };
+  });
+}
+
+// ================= BUSINESS REGISTRATION VERIFICATION (owner-controlled) =================
+const hashTokenPublic = (t2) => createHash("sha256").update(String(t2)).digest("hex");
+export const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+export const VERIFY_MAX_ATTEMPTS = 5;
+
+export function newVerificationCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+// stores a hashed code; invalidates previous unused codes for the business
+export async function storeBusinessVerification(businessId, code) {
+  await db.update(s.businessVerifications).set({ expiresAt: new Date() })
+    .where(and(eq(s.businessVerifications.businessId, businessId), sql`${s.businessVerifications.usedAt} IS NULL`));
+  const [row] = await db.insert(s.businessVerifications).values({
+    businessId, codeHash: hashTokenPublic(code), expiresAt: new Date(Date.now() + VERIFY_TTL_MS),
+  }).returning({ id: s.businessVerifications.id });
+  return row.id;
+}
+
+export async function verifyBusinessCode(email, code) {
+  const emailNorm = String(email || "").toLowerCase().trim();
+  const clean = String(code || "").trim();
+  if (!/^\d{6}$/.test(clean)) throw new BizError("Enter the 6-digit verification code", 400);
+  const [biz] = await db.select().from(s.businesses)
+    .where(and(eq(s.businesses.status, "pending"), sql`EXISTS (SELECT 1 FROM ${s.users} u WHERE u.business_id = ${s.businesses.id} AND u.email = ${emailNorm})`))
+    .limit(1);
+  if (!biz) throw new BizError("No pending registration found for this email", 404);
+  const [v] = await db.select().from(s.businessVerifications)
+    .where(and(eq(s.businessVerifications.businessId, biz.id), sql`${s.businessVerifications.usedAt} IS NULL`))
+    .orderBy(desc(s.businessVerifications.id)).limit(1);
+  if (!v) throw new BizError("No active verification code — request a new code", 400);
+  if (new Date(v.expiresAt) < new Date()) throw new BizError("This verification code has expired — request a new code", 400);
+  if (v.attempts >= VERIFY_MAX_ATTEMPTS) throw new BizError("Too many wrong attempts — request a new code", 429);
+  if (hashTokenPublic(clean) !== v.codeHash) {
+    // attempts persist even though we reject (committed before the error)
+    const attempts = v.attempts + 1;
+    await db.update(s.businessVerifications)
+      .set(attempts >= VERIFY_MAX_ATTEMPTS ? { attempts, expiresAt: new Date() } : { attempts })
+      .where(eq(s.businessVerifications.id, v.id));
+    throw new BizError(attempts >= VERIFY_MAX_ATTEMPTS ? "Too many wrong attempts — request a new code" : "Incorrect verification code", 400);
+  }
+  return db.transaction(async (t) => {
+    await t.update(s.businessVerifications).set({ usedAt: new Date() }).where(eq(s.businessVerifications.id, v.id));
+    await t.update(s.businesses).set({ status: "active" }).where(eq(s.businesses.id, biz.id));
+    const [owner] = await t.select().from(s.users).where(and(eq(s.users.businessId, biz.id), eq(s.users.role, "owner"))).limit(1);
+    return { businessId: biz.id, ownerId: owner?.id };
+  });
+}
+
+// Permanent, easy-to-remember control account for the demo environment.
+// Only this account (owner of the is_demo business) can manage demo access.
+export const DEMO_OWNER = { email: "demo@afriditech.pk", password: "demo123" };
+
+// ================= DEMO USAGE GUARD (server-side, 5 entries per module) =================
+export const DEMO_MODULES = ["sales", "purchases", "customers", "suppliers", "inventory", "expenses"];
+export const DEMO_LIMIT = 5;
+export async function demoGuard(user, module) {
+  if (user.role !== "demo") return { limited: false };
+  if (!user.grantId) throw new BizError("Demo session is not authorized", 403);
+  const [{ n }] = await db.select({ n: sql`count(*)::int` }).from(demoUsage)
+    .where(and(eq(demoUsage.grantId, user.grantId), eq(demoUsage.module, module)));
+  if (Number(n) >= DEMO_LIMIT) {
+    throw new BizError(`Demo limit reached: ${module} allows ${DEMO_LIMIT} entries. Existing demo data stays viewable. Ask the owner for full access.`, 403);
+  }
+  await db.insert(demoUsage).values({ grantId: user.grantId, module });
+  return { limited: true, used: Number(n) + 1, limit: DEMO_LIMIT };
+}
+export async function demoUsageCounts(grantId) {
+  const rows = await db.select({ module: demoUsage.module, n: sql`count(*)::int` }).from(demoUsage)
+    .where(eq(demoUsage.grantId, grantId)).groupBy(demoUsage.module);
+  const out = {};
+  for (const m of DEMO_MODULES) out[m] = 0;
+  for (const r of rows) out[r.module] = Number(r.n);
+  return out;
+}
+
 // ================= REGISTRATION (new business, fresh books) =================
-export async function registerBusiness({ businessName, ownerName, email, phone, passwordHash }) {
+export async function registerBusiness({ businessName, ownerName, email, phone, passwordHash, status = "active" }) {
   return db.transaction(async (t) => {
     const emailNorm = String(email).toLowerCase().trim();
     const dup = await t.select({ id: s.users.id }).from(s.users).where(eq(s.users.email, emailNorm)).limit(1);
     if (dup.length) throw new BizError("An account with this email already exists — please sign in instead");
+    const pendingDup = await t.select({ id: s.businesses.id }).from(s.businesses)
+      .where(and(eq(s.businesses.status, "pending"), sql`EXISTS (SELECT 1 FROM ${s.users} u WHERE u.business_id = ${s.businesses.id} AND u.email = ${emailNorm})`)).limit(1);
+    if (pendingDup.length) throw new BizError("A verification is already pending for this email — use “Resend code” on the registration screen", 409);
     const [biz] = await t.insert(s.businesses).values({
       name: businessName.trim(), phone: phone || null, currency: "PKR", taxPct: "0",
+      status,
       invoiceFooter: "Shukriya! Thank you for your business.",
     }).returning({ id: s.businesses.id });
     const [owner] = await t.insert(s.users).values({
@@ -143,6 +255,7 @@ export async function registerBusiness({ businessName, ownerName, email, phone, 
 
 // ================= SALES =================
 export async function createSale(user, input) {
+  await demoGuard(user, "sales");
   const { customerId, warehouseId, salesmanId, date, lines, notes } = input;
   if (!customerId || !warehouseId) throw new BizError("Customer and warehouse are required");
   if (!Array.isArray(lines) || !lines.length) throw new BizError("Invoice must have at least one item");
@@ -204,7 +317,7 @@ export async function createSale(user, input) {
     const prevBalance = n0(customer.balance);
     // Walk-in counter customers carry no khata — ANY sale to them (retail or
     // wholesale mode) must be paid in full.
-    if (customer.code === "WALKIN" && remaining > 0) {
+    if (saleKind === "retail" && remaining > 0 && (customer.code === "WALKIN" || customer.paymentTerms === "cash")) {
       throw new BizError("Walk-in retail sales must be paid in full — collect the full amount.");
     }
 
@@ -320,6 +433,122 @@ export async function voidSale(user, saleId, reason) {
   });
 }
 
+// ================= INVOICE EDITING (full re-sync) =================
+export async function editSale(user, saleId, input) {
+  if (!canOverride(user.role)) throw new BizError("Only owner/manager can edit invoices", 403);
+  if (!Array.isArray(input.lines) || !input.lines.length) throw new BizError("Invoice must have at least one item");
+  return db.transaction(async (t) => {
+    const [sale] = await t.select().from(s.sales).where(and(eq(s.sales.id, saleId), eq(s.sales.businessId, B(user)))).for("update").limit(1);
+    if (!sale) throw new BizError("Invoice not found", 404);
+    if (sale.status === "void") throw new BizError("Void invoices cannot be edited");
+    const oldItems = await t.select().from(s.saleItems).where(eq(s.saleItems.saleId, saleId));
+    const oldTotal = n0(sale.total), oldRemaining = n0(sale.balance);
+    const oldCost = r2(oldItems.reduce((a, i) => a + n0(i.qty) * n0(i.costRate), 0));
+
+    // stock differences: return what was removed, consume what was added
+    const oldQty = {}, newQtyMap = {};
+    for (const i of oldItems) oldQty[i.productId] = r2((oldQty[i.productId] || 0) + n0(i.qty));
+    const newItems = [];
+    let subtotal = 0, newCost = 0, gstTotal = 0;
+    for (const line of input.lines) {
+      const qty = r2(line.qty); const rate = r2(line.rate); const disc = r2(line.discount || 0);
+      if (qty <= 0 || rate < 0) throw new BizError("Each line needs a positive quantity and a valid rate");
+      const [product] = await t.select().from(s.products).where(and(eq(s.products.id, line.productId), eq(s.products.businessId, B(user)))).limit(1);
+      if (!product) throw new BizError("Product not found");
+      newQtyMap[product.id] = r2((newQtyMap[product.id] || 0) + qty);
+      const st = await getStockRow(t, B(user), product.id, sale.warehouseId);
+      const costRate = st?.avgCost ? n0(st.avgCost) : n0(product.costPrice);
+      const lineTotal = r2(qty * rate - disc);
+      subtotal = r2(subtotal + lineTotal);
+      newCost = r2(newCost + qty * costRate);
+      if (sale.gstMode !== "none") gstTotal = r2(gstTotal + lineTotal * n0(product.gstRate) / 100);
+      newItems.push({ saleId, productId: product.id, qty: String(qty), rate: String(rate), discount: String(disc), total: String(lineTotal), costRate: String(costRate) });
+    }
+    const allPids = new Set([...Object.keys(oldQty), ...Object.keys(newQtyMap)]);
+    for (const pid of allPids) {
+      const delta = r2((oldQty[pid] || 0) - (newQtyMap[pid] || 0)); // >0 => stock returns
+      if (delta === 0) continue;
+      const moved = await moveStock(t, B(user), Number(pid), sale.warehouseId, delta, delta > 0 ? "adjust_in" : "adjust_out", { type: "sale_edit", id: saleId, no: sale.invoiceNo }, user, `Invoice edit ${sale.invoiceNo}`);
+      if (st_negative(moved)) {
+        if (!input.allowNegative) throw new BizError("Edited quantities exceed available stock");
+      }
+    }
+    const discount = r2(Math.min(input.discount || 0, subtotal));
+    const total = r2(subtotal - discount + gstTotal);
+    const allocs = await t.select().from(s.paymentAllocations).where(and(eq(s.paymentAllocations.docType, "sale"), eq(s.paymentAllocations.docId, saleId), eq(s.paymentAllocations.status, "final")));
+    const paidTotal = r2(allocs.reduce((a, x) => a + n0(x.amount), 0));
+    const newRemaining = Math.max(0, r2(total - paidTotal));
+
+    await t.delete(s.saleItems).where(eq(s.saleItems.saleId, saleId));
+    await t.insert(s.saleItems).values(newItems);
+    await t.update(s.sales).set({
+      subtotal: String(subtotal), discount: String(discount), tax: String(gstTotal), total: String(total),
+      balance: String(newRemaining), notes: input.notes !== undefined ? input.notes : sale.notes,
+    }).where(eq(s.sales.id, saleId));
+    const deltaRem = r2(newRemaining - oldRemaining);
+    if (deltaRem !== 0) await t.update(s.customers).set({ balance: sql`${s.customers.balance}::numeric + ${deltaRem}` }).where(eq(s.customers.id, sale.customerId));
+
+    const deltaT = r2(total - oldTotal), deltaC = r2(newCost - oldCost);
+    if (deltaT !== 0 || deltaC !== 0) {
+      await postJournal(t, B(user), {
+        date: todayStr(), refType: "sale_edit", refId: saleId, memo: `Edit ${sale.invoiceNo}`,
+        lines: [
+          { code: "AR", entityId: sale.customerId, debit: deltaT },
+          { code: "COGS", debit: deltaC },
+          { code: "SALES", credit: deltaT },
+          { code: "INVENTORY", credit: deltaC },
+        ],
+      });
+    }
+    await audit(t, user, `Edited invoice ${sale.invoiceNo}`, "sale", saleId, { old: { total: oldTotal }, new: { total } });
+    return { id: saleId, total, remaining: newRemaining };
+  });
+}
+const st_negative = (m) => m.newQty < 0;
+
+// reverse a finalized payment with full cascade (used by payment page + cheque bounce)
+export async function reversePayment(user, paymentId, reason) {
+  if (!canOverride(user.role)) throw new BizError("Only owner/manager can reverse payments", 403);
+  return db.transaction(async (t) => {
+    const [pay] = await t.select().from(s.payments).where(and(eq(s.payments.id, paymentId), eq(s.payments.businessId, B(user)))).for("update").limit(1);
+    if (!pay) throw new BizError("Payment not found", 404);
+    if (pay.status !== "final") throw new BizError("Payment already reversed");
+    const amt = n0(pay.amount);
+    await t.update(s.payments).set({ status: "void", notes: pay.notes ? `${pay.notes} [reversed: ${reason || "no reason"}]` : `[reversed: ${reason || "no reason"}]` }).where(eq(s.payments.id, paymentId));
+    // customer receipt reversal takes money OUT; supplier payment reversal puts money BACK
+    const accDelta = pay.partyType === "customer" ? -amt : amt;
+    await t.update(s.accounts).set({ balance: sql`${s.accounts.balance}::numeric + ${accDelta}` }).where(eq(s.accounts.id, pay.accountId));
+    const partyTable = pay.partyType === "customer" ? s.customers : s.suppliers;
+    await t.update(partyTable).set({ balance: sql`${partyTable.balance}::numeric + ${amt}` }).where(eq(partyTable.id, pay.partyId));
+    const allocs = await t.select().from(s.paymentAllocations).where(and(eq(s.paymentAllocations.paymentId, paymentId), eq(s.paymentAllocations.status, "final")));
+    for (const al of allocs) {
+      const a = n0(al.amount);
+      await t.update(s.paymentAllocations).set({ status: "void" }).where(eq(s.paymentAllocations.id, al.id));
+      const docTable = al.docType === "sale" ? s.sales : s.purchases;
+      await t.update(docTable).set({
+        balance: sql`LEAST(${docTable.total}::numeric, ${docTable.balance}::numeric + ${a})`,
+        paid: sql`GREATEST(0, ${docTable.paid}::numeric - ${a})`,
+      }).where(eq(docTable.id, al.docId));
+    }
+    const [revAcc] = await t.select({ type: s.accounts.type }).from(s.accounts).where(eq(s.accounts.id, pay.accountId)).limit(1);
+    const cashCode = revAcc?.type === "bank" ? "BANK" : "CASH";
+    await postJournal(t, B(user), {
+      date: todayStr(), refType: "payment_reversal", refId: paymentId, memo: `Reverse ${pay.receiptNo}: ${reason || ""}`,
+      lines: pay.partyType === "customer"
+        ? [
+            { code: "AR", entityId: pay.partyId, debit: amt },
+            { code: cashCode, entityId: pay.accountId, credit: amt },
+          ]
+        : [
+            { code: cashCode, entityId: pay.accountId, debit: amt },
+            { code: "AP", entityId: pay.partyId, credit: amt },
+          ],
+    });
+    await audit(t, user, `Reversed payment ${pay.receiptNo}`, "payment", paymentId, { old: { status: "final", amount: amt }, new: { status: "void" }, reason: reason || null });
+    return { id: paymentId };
+  });
+}
+
 // ================= PAYMENTS (customer receipts + supplier payments) =================
 export async function recordPayment(user, input) {
   const { partyType, partyId, date, accountId, scheduleId } = input;
@@ -405,6 +634,7 @@ export async function recordPayment(user, input) {
 
 // ================= PURCHASES =================
 export async function createPurchase(user, input) {
+  await demoGuard(user, "purchases");
   const { supplierId, warehouseId, date, lines } = input;
   if (!supplierId || !warehouseId) throw new BizError("Supplier and warehouse are required");
   if (!Array.isArray(lines) || !lines.length) throw new BizError("Purchase must have at least one item");
@@ -582,6 +812,7 @@ export async function createPurchaseReturn(user, input) {
 
 // ================= STOCK OPS =================
 export async function adjustStock(user, input) {
+  await demoGuard(user, "inventory");
   const { productId, warehouseId, reason } = input;
   const delta = r2(input.qtyDelta);
   if (!delta) throw new BizError("Quantity adjustment required");
@@ -604,6 +835,7 @@ export async function adjustStock(user, input) {
 }
 
 export async function transferStock(user, input) {
+  await demoGuard(user, "inventory");
   const { productId, fromWarehouseId, toWarehouseId } = input;
   const qty = r2(input.qty);
   if (qty <= 0) throw new BizError("Quantity must be positive");
@@ -716,6 +948,7 @@ const moneyFmt = (v) => `Rs ${Number(v).toLocaleString()}`;
 
 // ================= EXPENSES / ACCOUNTS =================
 export async function addExpense(user, input) {
+  await demoGuard(user, "expenses");
   const amount = r2(input.amount);
   if (amount <= 0) throw new BizError("Amount must be greater than zero");
   const docDate = input.date || todayStr();
@@ -761,9 +994,57 @@ export async function updateChequeStatus(user, chequeId, status, note) {
   const valid = ["pending", "deposited", "cleared", "bounced", "cancelled"];
   if (!valid.includes(status)) throw new BizError("Invalid cheque status");
   return db.transaction(async (t) => {
-    const [chq] = await t.select().from(s.cheques).where(and(eq(s.cheques.id, chequeId), eq(s.cheques.businessId, B(user)))).limit(1);
+    const [chq] = await t.select().from(s.cheques).where(and(eq(s.cheques.id, chequeId), eq(s.cheques.businessId, B(user)))).for("update").limit(1);
     if (!chq) throw new BizError("Cheque not found", 404);
+    if (chq.status === "bounced" && (status === "cleared" || status === "deposited")) {
+      throw new BizError("A bounced cheque cannot be re-cleared — record a new payment instead");
+    }
     await t.update(s.cheques).set({ status, notes: note || chq.notes }).where(eq(s.cheques.id, chequeId));
+
+    // bounced / cancelled cheques reverse the original payment's financial effect
+    if ((status === "bounced" || status === "cancelled") && chq.paymentId) {
+      const [pay] = await t.select().from(s.payments).where(eq(s.payments.id, chq.paymentId)).for("update").limit(1);
+      if (pay && pay.status === "final") {
+        const amt = n0(pay.amount);
+        await t.update(s.payments).set({ status: "void" }).where(eq(s.payments.id, pay.id));
+        const accDelta = pay.partyType === "customer" ? -amt : amt;
+        await t.update(s.accounts).set({ balance: sql`${s.accounts.balance}::numeric + ${accDelta}` }).where(eq(s.accounts.id, pay.accountId));
+        const partyTable = pay.partyType === "customer" ? s.customers : s.suppliers;
+        await t.update(partyTable).set({ balance: sql`${partyTable.balance}::numeric + ${amt}` }).where(eq(partyTable.id, pay.partyId));
+        const allocs = await t.select().from(s.paymentAllocations).where(and(eq(s.paymentAllocations.paymentId, pay.id), eq(s.paymentAllocations.status, "final")));
+        for (const al of allocs) {
+          const a = n0(al.amount);
+          await t.update(s.paymentAllocations).set({ status: "void" }).where(eq(s.paymentAllocations.id, al.id));
+          if (al.docType === "sale") {
+            await t.update(s.sales).set({
+              balance: sql`LEAST(${s.sales.total}::numeric, ${s.sales.balance}::numeric + ${a})`,
+              paid: sql`GREATEST(0, ${s.sales.paid}::numeric - ${a})`,
+            }).where(eq(s.sales.id, al.docId));
+          } else {
+            await t.update(s.purchases).set({
+              balance: sql`LEAST(${s.purchases.total}::numeric, ${s.purchases.balance}::numeric + ${a})`,
+              paid: sql`GREATEST(0, ${s.purchases.paid}::numeric - ${a})`,
+            }).where(eq(s.purchases.id, al.docId));
+          }
+        }
+        const [revAcc] = await t.select({ type: s.accounts.type }).from(s.accounts).where(eq(s.accounts.id, pay.accountId)).limit(1);
+        const cashCode = revAcc?.type === "bank" ? "BANK" : "CASH";
+        await postJournal(t, B(user), {
+          date: todayStr(), refType: "cheque_reversal", refId: chq.id,
+          memo: `Cheque ${status} reversal #${chq.chequeNo || chq.id}`,
+          lines: pay.partyType === "customer"
+            ? [
+                { code: "AR", entityId: pay.partyId, debit: amt },
+                { code: cashCode, entityId: pay.accountId, credit: amt },
+              ]
+            : [
+                { code: cashCode, entityId: pay.accountId, debit: amt },
+                { code: "AP", entityId: pay.partyId, credit: amt },
+              ],
+        });
+        await audit(t, user, `Cheque ${status} — payment ${pay.receiptNo} reversed`, "cheque", chequeId, { old: { status: chq.status }, new: { status }, reason: note || null });
+      }
+    }
     if (status === "bounced") await notify(t, B(user), "cheque_bounced", `Cheque bounced — Rs ${n0(chq.amount).toLocaleString()}`, `Cheque #${chq.chequeNo || chq.id} (${chq.bank || ""})`);
     await audit(t, user, `Cheque status: ${status}`, "cheque", chequeId, { old: { status: chq.status }, new: { status } });
   });
@@ -802,7 +1083,7 @@ export async function getPartyLedger(businessId, partyType, partyId) {
       db.select({ id: s.salesReturns.id, no: s.salesReturns.returnNo, date: s.salesReturns.date, total: s.salesReturns.total, createdAt: s.salesReturns.createdAt }).from(s.salesReturns).where(and(eq(s.salesReturns.businessId, businessId), eq(s.salesReturns.customerId, partyId))),
     ]);
     for (const x of sales) if (x.status === "final") rows.push({ date: x.date, createdAt: x.createdAt, kind: "sale", desc: `Invoice ${x.no}`, debit: n0(x.total), credit: 0, ref: `/sales/${x.id}` });
-    for (const x of pays) if (x.status === "final") rows.push({ date: x.date, createdAt: x.createdAt, kind: "payment", desc: `Payment ${x.no} (${x.method})`, debit: 0, credit: n0(x.amount), ref: null });
+    for (const x of pays) if (x.status === "final") rows.push({ date: x.date, createdAt: x.createdAt, kind: "payment", desc: `Payment ${x.no} (${x.method})`, debit: 0, credit: n0(x.amount), ref: `/payments/${x.id}` });
     for (const x of rets) rows.push({ date: x.date, createdAt: x.createdAt, kind: "return", desc: `Return ${x.no}`, debit: 0, credit: n0(x.total), ref: null });
   } else {
     const [purs, pays, rets] = await Promise.all([
@@ -811,7 +1092,7 @@ export async function getPartyLedger(businessId, partyType, partyId) {
       db.select({ id: s.purchaseReturns.id, no: s.purchaseReturns.returnNo, date: s.purchaseReturns.date, total: s.purchaseReturns.total, createdAt: s.purchaseReturns.createdAt }).from(s.purchaseReturns).where(and(eq(s.purchaseReturns.businessId, businessId), eq(s.purchaseReturns.supplierId, partyId))),
     ]);
     for (const x of purs) if (x.status === "final") rows.push({ date: x.date, createdAt: x.createdAt, kind: "purchase", desc: `Purchase ${x.no}`, debit: 0, credit: n0(x.total), ref: `/purchases/${x.id}` });
-    for (const x of pays) if (x.status === "final") rows.push({ date: x.date, createdAt: x.createdAt, kind: "payment", desc: `Payment ${x.no} (${x.method})`, debit: n0(x.amount), credit: 0, ref: null });
+    for (const x of pays) if (x.status === "final") rows.push({ date: x.date, createdAt: x.createdAt, kind: "payment", desc: `Payment ${x.no} (${x.method})`, debit: n0(x.amount), credit: 0, ref: `/payments/${x.id}` });
     for (const x of rets) rows.push({ date: x.date, createdAt: x.createdAt, kind: "return", desc: `Return ${x.no}`, debit: n0(x.total), credit: 0, ref: null });
   }
 
@@ -987,11 +1268,21 @@ export async function receivablesReport(businessId, opts = {}) {
 }
 
 export async function payablesReport(businessId) {
-  const rows = await db.select({
-    id: s.suppliers.id, name: s.suppliers.name, city: s.suppliers.city, phone: s.suppliers.phone,
-    balance: s.suppliers.balance, category: s.suppliers.category,
-  }).from(s.suppliers).where(and(eq(s.suppliers.businessId, businessId), sql`${s.suppliers.balance}::numeric > 0`)).orderBy(desc(s.suppliers.balance));
-  return rows.map((r) => ({ ...r, balance: n0(r.balance) }));
+  const rows = (await db.execute(sql`
+    WITH lp AS (SELECT party_id cid, max(date) d FROM payments WHERE business_id=${businessId} AND party_type='supplier' AND status='final' GROUP BY party_id),
+         fp AS (SELECT supplier_id cid, min(date) d FROM purchases WHERE business_id=${businessId} AND status='final' GROUP BY supplier_id)
+    SELECT p.id, p.name, p.city, p.phone, p.category, p.balance::numeric balance,
+           GREATEST(0, current_date - COALESCE(lp.d, fp.d)) age_days
+    FROM suppliers p LEFT JOIN lp ON lp.cid=p.id LEFT JOIN fp ON fp.cid=p.id
+    WHERE p.business_id=${businessId} AND p.balance::numeric > 0
+    ORDER BY p.balance::numeric DESC`)).rows;
+  return rows.map((r) => {
+    const bal = Number(r.balance), age = Number(r.age_days);
+    const buckets = { b30: 0, b60: 0, b90: 0, b120: 0, bPlus: 0 };
+    if (age <= 30) buckets.b30 = bal; else if (age <= 60) buckets.b60 = bal; else if (age <= 90) buckets.b90 = bal;
+    else if (age <= 120) buckets.b120 = bal; else buckets.bPlus = bal;
+    return { ...r, balance: bal, ageDays: age, buckets };
+  });
 }
 
 export async function topProducts(businessId, from, to, limit = 8) {

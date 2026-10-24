@@ -39,7 +39,7 @@ export function SuppliersTable({ suppliers }) {
                 <td className="text-xs text-mute">{s.city || "—"}<br />{s.phone}</td>
                 <td><Badge tone="mute">{s.category}</Badge></td>
                 <td className="text-xs">{s.paymentTerms}</td>
-                <td className="num tnum font-bold">{money(s.balance)}</td>
+                <td className={`num tnum font-bold ${Number(s.balance) > 0 ? "text-warn" : "text-ok"}`}>{money(s.balance)}</td>
               </tr>
             ))}
           </tbody>

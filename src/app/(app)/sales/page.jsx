@@ -89,8 +89,8 @@ export default async function SalesPage({ searchParams }) {
                 <td><Link href={`/customers/${r.customerId}`} className="font-semibold hover:text-brand">{r.customer}</Link></td>
                 <td className="text-mute text-xs">{r.salesman || "—"}</td>
                 <td className="num tnum font-bold">{money(r.total)}</td>
-                <td className="num tnum">{money(r.paid)}</td>
-                <td className="num tnum">{Number(r.balance) ? money(r.balance) : "—"}</td>
+                <td className={`num tnum ${Number(r.paid) > 0 ? "text-ok font-semibold" : "text-mute"}`}>{Number(r.paid) > 0 ? money(r.paid) : "—"}</td>
+                <td className={`num tnum ${Number(r.balance) > 0 ? "text-warn font-semibold" : "text-mute"}`}>{Number(r.balance) ? money(r.balance) : "—"}</td>
                 <td>{r.status === "void" ? <Badge tone="danger">void</Badge> : Number(r.balance) > 0 ? <Badge tone="warn">credit</Badge> : <Badge tone="ok">settled</Badge>}</td>
               </tr>
             ))}

@@ -3,9 +3,12 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { customers, collectionSchedules, accounts, salesmen, sales } from "@/db/schema";
 import { getUser } from "@/server/auth.mjs";
+import { getLang, makeT } from "@/lib/i18n";
+import { cookies } from "next/headers";
 import { getPartyLedger } from "@/server/services.mjs";
 import { redirect, notFound } from "next/navigation";
-import { money, num, dateShort } from "@/lib/format";
+import { todayStr } from "@/server/util.mjs";
+import { money, num, dateShort, daysBetween } from "@/lib/format";
 import { Card, Badge } from "@/components/ui";
 import LedgerView from "@/components/LedgerView";
 import CustomerActions from "./_client";
@@ -15,6 +18,8 @@ export const dynamic = "force-dynamic";
 export default async function CustomerDetailPage({ params }) {
   const user = await getUser();
   if (!user) redirect("/login");
+  const jar = await cookies();
+  const t = makeT(getLang(jar.toString()).code);
   const { id } = await params;
   const custId = Number(id);
 
@@ -25,6 +30,8 @@ export default async function CustomerDetailPage({ params }) {
   const accs = await db.select().from(accounts).where(eq(accounts.businessId, user.businessId));
   const sm = await db.select().from(salesmen).where(eq(salesmen.businessId, user.businessId));
   const schedules = await db.select().from(collectionSchedules).where(eq(collectionSchedules.customerId, custId)).orderBy(collectionSchedules.weekStart);
+  const openInvoices = await db.select({ id: sales.id, no: sales.invoiceNo, date: sales.date, total: sales.total, paid: sql`(${sales.total}::numeric - ${sales.balance}::numeric)`, balance: sales.balance })
+    .from(sales).where(and(eq(sales.customerId, custId), eq(sales.status, "final"), sql`${sales.balance}::numeric > 0`)).orderBy(sales.date);
   const [agg] = await db.select({
     totalSales: sql`COALESCE(SUM(${sales.total}::numeric),0)`, bills: sql`COUNT(*)`,
     lastSale: sql`MAX(${sales.date})`,
@@ -72,6 +79,33 @@ export default async function CustomerDetailPage({ params }) {
 
       <CustomerActions customer={customer} accounts={accs} salesmen={sm} schedules={schedules}
         canEmi={["owner", "manager", "accountant"].includes(user.role)} />
+
+      {openInvoices.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="font-display font-bold text-sm">{t("Outstanding documents")}</h2>
+            <span className="text-xs text-mute tnum">{openInvoices.length} {t("open")} · {money(openInvoices.reduce((a, x) => a + Number(x.balance), 0))}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="tbl">
+              <thead><tr><th>{t("Date")}</th><th>{t("Invoice")}</th><th className="num">{t("Total")}</th><th className="num">{t("Paid")}</th><th className="num">{t("Remaining")}</th><th className="num">{t("Age (days)")}</th><th></th></tr></thead>
+              <tbody>
+                {openInvoices.map((o) => (
+                  <tr key={o.id}>
+                    <td className="text-mute whitespace-nowrap">{dateShort(o.date)}</td>
+                    <td className="tnum font-semibold">{o.no}</td>
+                    <td className="num tnum">{money(o.total)}</td>
+                    <td className="num tnum text-ok">{money(o.paid)}</td>
+                    <td className="num tnum font-bold text-warn">{money(o.balance)}</td>
+                    <td className="num tnum">{daysBetween(o.date, todayStr())}</td>
+                    <td><Link className="text-xs font-bold text-brand hover:underline no-print" href={`/sales/${o.id}`}>{t("Open")}</Link></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       <div>
         <h2 className="font-display font-bold text-sm mb-2">Customer Ledger — {customer.code}</h2>

@@ -3,10 +3,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Modal, Field, ErrorNote, toast } from "@/components/ui";
+import { useT } from "@/lib/useT";
 import PaymentDialog from "@/components/PaymentDialog";
 import { money } from "@/lib/format";
 
 export default function CustomerActions({ customer, accounts, salesmen, schedules, canEmi }) {
+  const t = useT();
   const [payOpen, setPayOpen] = useState(false);
   const [scheduleId, setScheduleId] = useState("");
   const [editOpen, setEditOpen] = useState(false);
@@ -56,6 +58,7 @@ export default function CustomerActions({ customer, accounts, salesmen, schedule
         <Link href={`/sales/new?customer=${customer.id}`} className="rounded-md bg-accent hover:bg-[#9c660e] text-white text-sm font-bold px-4 py-2">New Sale</Link>
         <Button onClick={() => { setScheduleId(""); setPayOpen(true); }}>Receive Payment</Button>
         {canEmi && Number(customer.balance) > 0 && <Button variant="outline" onClick={() => setEmiOpen(true)}>EMI / Installment Plan</Button>}
+        <Link href={`/reports?tab=ledger&view=party&kind=customer&party=${customer.id}`} className="rounded-lg border border-line bg-white px-3.5 py-2 text-sm font-semibold shadow-sm hover:bg-[#f6f5ef]">{t("View Ledger")}</Link>
         <Button variant="outline" onClick={() => window.print()}>Print Statement</Button>
         <Button variant="outline" onClick={() => setEditOpen(true)}>Edit Customer</Button>
       </div>

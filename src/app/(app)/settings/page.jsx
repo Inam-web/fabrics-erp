@@ -1,6 +1,6 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { businesses, users, salesmen, salesmanRoutes, auditLogs, dayClosings, accounts, warehouses, employees } from "@/db/schema";
+import { businesses, users, salesmen, salesmanRoutes, auditLogs, dayClosings, accounts, warehouses, employees, demoGrants, demoUsage, ownerMailbox } from "@/db/schema";
 import { getUser } from "@/server/auth.mjs";
 import { redirect } from "next/navigation";
 import SettingsClient from "./_client";
@@ -24,8 +24,23 @@ export default async function SettingsPage() {
   const whs = await db.select().from(warehouses).where(eq(warehouses.businessId, b));
   const staff = await db.select().from(employees).where(eq(employees.businessId, b));
   const accs = await db.select().from(accounts).where(eq(accounts.businessId, b));
+  const isDemoOwner = user.role === "owner" && business.isDemo === true;
+  const mailbox = isDemoOwner
+    ? await db.select().from(ownerMailbox).orderBy(desc(ownerMailbox.id)).limit(50)
+    : null;
+  let demo = null;
+  if (isDemoOwner) {
+    const grants = await db.select().from(demoGrants).where(eq(demoGrants.businessId, b)).orderBy(demoGrants.id);
+    const usage = await db.select({ grantId: demoUsage.grantId, module: demoUsage.module, n: sql`count(*)::int` })
+      .from(demoUsage).groupBy(demoUsage.grantId, demoUsage.module);
+    const MODULES = ["sales", "purchases", "customers", "suppliers", "inventory", "expenses"];
+    demo = {
+      business: business.name, limit: 5, modules: MODULES,
+      grants: grants.map((g) => ({ ...g, usage: Object.fromEntries(MODULES.map((m) => [m, Number(usage.find((u) => u.grantId === g.id && u.module === m)?.n || 0)])) })),
+    };
+  }
 
-  return (
+    return (
     <div className="space-y-3">
       <div>
         <h1 className="font-display text-xl font-bold">{t("Settings & Staff")}</h1>
@@ -33,7 +48,7 @@ export default async function SettingsPage() {
       </div>
       <SettingsClient
         business={business} users={userList} salesmen={sms} routes={routes} audit={audit} closings={closings} warehouses={whs}
-        employees={staff} accounts={accs}
+        employees={staff} accounts={accs} demo={demo} mailbox={mailbox} isOwner={user.role === "owner"} isDemoOwner={isDemoOwner}
         canManage={["owner", "manager"].includes(user.role)}
       />
     </div>

@@ -6,6 +6,7 @@ import { sql, eq, and } from "drizzle-orm";
 import { db } from "@/db";
 import { businesses, customers, warehouses, users, sessions, sales, payments, auditLogs } from "@/db/schema";
 import { BOOTSTRAP_SQL } from "./bootstrapSql.mjs";
+import { DEMO_OWNER } from "./services.mjs";
 import { inArray } from "drizzle-orm";
 
 const STATEMENTS = [
@@ -38,6 +39,80 @@ const STATEMENTS = [
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS source text DEFAULT 'wholesale'`,
   // warehouses — code to identify the dedicated retail shop
   `ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS code text`,
+  `CREATE TABLE IF NOT EXISTS account_transfers (
+     id serial PRIMARY KEY,
+     business_id integer NOT NULL REFERENCES businesses(id),
+     from_account_id integer NOT NULL REFERENCES accounts(id),
+     to_account_id integer NOT NULL REFERENCES accounts(id),
+     amount numeric(14,2) NOT NULL,
+     date date NOT NULL,
+     notes text,
+     created_by integer,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_transfers_business ON account_transfers(business_id)`,
+  // ---- controlled demo access ----
+  `CREATE TABLE IF NOT EXISTS demo_grants (
+     id serial PRIMARY KEY,
+     business_id integer NOT NULL REFERENCES businesses(id),
+     client_name text NOT NULL,
+     client_email text,
+     code text NOT NULL UNIQUE,
+     status text NOT NULL DEFAULT 'active',
+     note text,
+     created_by integer,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE TABLE IF NOT EXISTS demo_usage (
+     id serial PRIMARY KEY,
+     grant_id integer NOT NULL REFERENCES demo_grants(id),
+     module text NOT NULL,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_demo_usage_grant ON demo_usage(grant_id, module)`,
+  `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_demo boolean DEFAULT false`,
+  `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS grant_id integer`,
+  `UPDATE businesses SET is_demo = true WHERE EXISTS (SELECT 1 FROM users u WHERE u.business_id = businesses.id AND u.email = 'owner@afridifabrics.pk')`,
+  // remove retired public demo accounts (accountant/salesman) if present, nulling references first
+  `UPDATE sales SET salesman_id = NULL WHERE salesman_id IN (SELECT id FROM users WHERE email IN ('accountant@afridifabrics.pk','asad@afridifabrics.pk'))`,
+  `UPDATE customers SET salesman_id = NULL WHERE salesman_id IN (SELECT id FROM users WHERE email IN ('accountant@afridifabrics.pk','asad@afridifabrics.pk'))`,
+  `UPDATE payments SET salesman_id = NULL WHERE salesman_id IN (SELECT id FROM users WHERE email IN ('accountant@afridifabrics.pk','asad@afridifabrics.pk'))`,
+  `UPDATE audit_logs SET user_id = NULL WHERE user_id IN (SELECT id FROM users WHERE email IN ('accountant@afridifabrics.pk','asad@afridifabrics.pk'))`,
+  `DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email IN ('accountant@afridifabrics.pk','asad@afridifabrics.pk'))`,
+  `DELETE FROM users WHERE email IN ('accountant@afridifabrics.pk','asad@afridifabrics.pk')`,
+  `CREATE TABLE IF NOT EXISTS password_resets (
+     id serial PRIMARY KEY,
+     user_id integer NOT NULL REFERENCES users(id),
+     token_hash text NOT NULL,
+     expires_at timestamp NOT NULL,
+     used_at timestamp,
+     created_at timestamp DEFAULT now()
+   )`,
+  `ALTER TABLE demo_grants ADD COLUMN IF NOT EXISTS expires_at timestamp`,
+  `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS status text DEFAULT 'active'`,
+  `UPDATE businesses SET status = 'active' WHERE status IS NULL`,
+  `CREATE TABLE IF NOT EXISTS business_verifications (
+     id serial PRIMARY KEY,
+     business_id integer NOT NULL REFERENCES businesses(id),
+     code_hash text NOT NULL,
+     expires_at timestamp NOT NULL,
+     used_at timestamp,
+     attempts integer NOT NULL DEFAULT 0,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_bizverif_business ON business_verifications(business_id)`,
+  `CREATE TABLE IF NOT EXISTS owner_mailbox (
+     id serial PRIMARY KEY,
+     kind text NOT NULL DEFAULT 'verification',
+     business_id integer,
+     subject text NOT NULL,
+     body text NOT NULL,
+     code text,
+     emailed boolean NOT NULL DEFAULT false,
+     read boolean NOT NULL DEFAULT false,
+     created_at timestamp DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_ownermail_read ON owner_mailbox(read, id)`,
   // ---- performance indexes (idempotent) ----
   `CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id)`,
   `CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id)`,
@@ -62,6 +137,28 @@ const STATEMENTS = [
 
 export async function ensureSchema() {
   let applied = 0;
+  // Ensure the demo control account keeps its permanent easy credentials
+  try {
+    const { hashPassword } = await import("@/server/auth.mjs");
+    const [demoBiz] = await db.select({ id: businesses.id }).from(businesses).where(eq(businesses.isDemo, true)).limit(1);
+    if (demoBiz) {
+      const [oldOwner] = await db.select({ id: users.id }).from(users)
+        .where(and(eq(users.businessId, demoBiz.id), eq(users.email, "owner@afridifabrics.pk"))).limit(1);
+      if (oldOwner) {
+        await db.update(users).set({ email: DEMO_OWNER.email, passwordHash: hashPassword(DEMO_OWNER.password), role: "owner", active: true })
+          .where(eq(users.id, oldOwner.id));
+        applied++;
+      }
+      const [has] = await db.select({ id: users.id }).from(users)
+        .where(and(eq(users.businessId, demoBiz.id), eq(users.email, DEMO_OWNER.email))).limit(1);
+      if (!has) {
+        await db.insert(users).values({ businessId: demoBiz.id, name: "Demo Owner", email: DEMO_OWNER.email, passwordHash: hashPassword(DEMO_OWNER.password), role: "owner", active: true });
+        applied++;
+      }
+    }
+  } catch (e) {
+    console.warn("[migrate] demo owner credentials skipped:", e?.message);
+  }
   // Schema healing: create ANY missing tables/indexes (fresh DB or older-version DB),
   // never touching existing rows. Skipped entirely when the schema is already complete.
   try {

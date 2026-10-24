@@ -61,7 +61,7 @@ export default async function PurchasesPage({ searchParams }) {
                 <td><Link href={`/suppliers/${r.supplierId}`} className="font-semibold hover:text-brand">{r.supplier}</Link></td>
                 <td className="text-mute text-xs">{r.refNo || "—"}</td>
                 <td className="num tnum font-bold">{money(r.total)}</td>
-                <td className="num tnum">{money(r.paid)}</td>
+                <td className={`num tnum ${Number(r.paid) > 0 ? "text-ok font-semibold" : "text-mute"}`}>{Number(r.paid) > 0 ? money(r.paid) : "—"}</td>
                 <td className="num tnum">{Number(r.balance) ? <Badge tone="warn">{money(r.balance)}</Badge> : <Badge tone="ok">paid</Badge>}</td>
               </tr>
             ))}

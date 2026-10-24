@@ -15,6 +15,7 @@ export default function ProductActions({ product, warehouses, whQty }) {
     <div className="flex flex-wrap gap-2 no-print">
       <Link href={`/sales/new?product=${product.id}`} className="rounded-md bg-accent hover:bg-[#9c660e] text-white text-sm font-bold px-4 py-2">+ {t("New Sale")}</Link>
       <Link href="/purchases/new" className="rounded-md bg-brand hover:bg-brand-deep text-white text-sm font-bold px-4 py-2">+ {t("New Purchase")}</Link>
+      <Link href="/reports?tab=ledger&view=account&code=INVENTORY" className="rounded-lg border border-line bg-white px-3.5 py-2 text-sm font-semibold shadow-sm hover:bg-[#f6f5ef]">{t("View Ledger")}</Link>
       <Button variant="outline" onClick={() => setAdj(true)}>{t("Stock Adjustment")}</Button>
       <Button variant="outline" onClick={() => setTrf(true)}>{t("Transfer Between Godowns")}</Button>
       <Button variant="outline" onClick={() => setLabels(true)}>{t("labels")}</Button>

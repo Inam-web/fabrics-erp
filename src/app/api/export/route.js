@@ -71,6 +71,21 @@ export const GET = api(async ({ user, req }) => {
         r.gstMode === "inter" ? Number(r.tax).toFixed(2) : "0.00",
         Number(r.total).toFixed(2)]));
     file = `gst-data-${p.get("from") || "all"}-${p.get("to") || "today"}.csv`;
+  } else if (type === "accountledger") {
+    const code = p.get("code") || "CASH";
+    const entity = p.get("entity") ? Number(p.get("entity")) : null;
+    const conds = [eq(s.journalEntries.businessId, b), eq(s.journalLines.accountCode, code)];
+    if (entity) conds.push(eq(s.journalLines.entityId, entity));
+    if (p.get("from")) conds.push(gte(s.journalEntries.date, p.get("from")));
+    if (p.get("to")) conds.push(lte(s.journalEntries.date, p.get("to")));
+    const rows = await db.select({
+      date: s.journalEntries.date, memo: s.journalEntries.memo, refType: s.journalEntries.refType, refId: s.journalEntries.refId,
+      debit: s.journalLines.debit, credit: s.journalLines.credit,
+    }).from(s.journalLines).innerJoin(s.journalEntries, eq(s.journalEntries.id, s.journalLines.entryId))
+      .where(and(...conds)).orderBy(s.journalEntries.date, s.journalEntries.id);
+    content = csv(["Date", "Description", "Reference", "Debit", "Credit"],
+      rows.map((r) => [r.date, r.memo || r.refType, `${r.refType}#${r.refId}`, r.debit, r.credit]));
+    file = `ledger-${code}${entity ? "-" + entity : ""}.csv`;
   } else if (type === "expenses") {
     const rows = await db.select({
       date: s.expenses.date, category: s.expenseCategories.name, amount: s.expenses.amount,

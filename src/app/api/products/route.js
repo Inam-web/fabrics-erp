@@ -2,6 +2,7 @@ import { and, asc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { products, stock, stockMovements, warehouses } from "@/db/schema";
 import { api, body } from "@/server/api.mjs";
+import { demoGuard } from "@/server/services.mjs";
 import { BizError } from "@/server/util.mjs";
 
 export const GET = api(async ({ user, req }) => {
@@ -34,7 +35,8 @@ export const GET = api(async ({ user, req }) => {
 });
 
 export const POST = api(async ({ user, req }) => {
-  if (!["owner", "manager", "warehouse"].includes(user.role)) throw new BizError("Only owner, manager or warehouse staff can add fabrics", 403);
+  if (!["owner", "manager", "warehouse", "demo"].includes(user.role)) throw new BizError("Only owner, manager or warehouse staff can add fabrics", 403);
+  await demoGuard(user, "inventory");
   const b = await body(req);
   if (!b.name?.trim()) throw new BizError("Product name is required");
   const source = b.source === "retail" ? "retail" : "wholesale";
