@@ -64,7 +64,7 @@ export function PaymentActions({ payment, partyName, canManage }) {
 
       <Modal open={revOpen} onClose={() => setRevOpen(false)} title={`${t("Reverse payment")} — ${payment.receiptNo}`}>
         <p className="text-sm text-mute">
-          Reversing restores {partyName}'s outstanding balance, removes the money from the account, reopens the applied invoices and keeps a full audit trail. This cannot be undone.
+          Reversing restores {partyName}&apos;s outstanding balance, removes the money from the account, reopens the applied invoices and keeps a full audit trail. This cannot be undone.
         </p>
         <div className="mt-3"><Field label="Reason" required><input className="inp" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. entered by mistake" /></Field></div>
         <div className="mt-3"><ErrorNote error={err} /></div>

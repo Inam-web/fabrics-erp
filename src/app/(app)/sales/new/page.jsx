@@ -19,7 +19,7 @@ export default async function NewSalePage({ searchParams }) {
   const b = user.businessId;
 
   const [custs, prods, whs, sms, accs, stockRows, cps] = await Promise.all([
-    db.select({ id: customers.id, name: customers.name, code: customers.code, balance: customers.balance, creditLimit: customers.creditLimit, priceLevel: customers.priceLevel, category: customers.category, area: customers.area, phone: customers.phone }).from(customers).where(and(eq(customers.businessId, b), eq(customers.status, "active"))).orderBy(customers.name),
+    db.select({ id: customers.id, name: customers.name, code: customers.code, balance: customers.balance, creditLimit: customers.creditLimit, priceLevel: customers.priceLevel, category: customers.category, paymentTerms: customers.paymentTerms, area: customers.area, phone: customers.phone }).from(customers).where(and(eq(customers.businessId, b), eq(customers.status, "active"))).orderBy(customers.name),
     db.select({ id: products.id, name: products.name, sku: products.sku, barcode: products.barcode, color: products.color, design: products.design, brand: products.brand, unit: products.unit, wholesalePrice: products.wholesalePrice, retailPrice: products.retailPrice, vipPrice: products.vipPrice, gstRate: products.gstRate, minPrice: products.minPrice, saleDiscountPct: products.saleDiscountPct, notForSale: products.notForSale, mrp: products.mrp, active: products.active }).from(products).where(eq(products.businessId, b)).orderBy(products.name),
     db.select().from(warehouses).where(eq(warehouses.businessId, b)).orderBy(warehouses.name),
     db.select().from(salesmen).where(and(eq(salesmen.businessId, b), eq(salesmen.active, true))),
@@ -32,7 +32,7 @@ export default async function NewSalePage({ searchParams }) {
     <div className="space-y-3">
       <div>
         <h1 className="font-display text-xl font-bold">{t("New Sale")}</h1>
-        <div className="text-sm text-mute">Fast invoice entry — rates auto-pick from the customer's price level, stock checks run per godown.</div>
+        <div className="text-sm text-mute">Fast invoice entry — rates auto-pick from the customer&apos;s price level, stock checks run per godown.</div>
       </div>
       <BillingClient
         customers={custs} products={prods} stockRows={stockRows} warehouses={whs} salesmen={sms}

@@ -2,8 +2,8 @@ import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { customers, salesmen } from "@/db/schema";
 import { api, body } from "@/server/api.mjs";
-import { demoGuard } from "@/server/services.mjs";
-import { BizError } from "@/server/util.mjs";
+import { demoGuard, postJournal } from "@/server/services.mjs";
+import { BizError, todayStr } from "@/server/util.mjs";
 
 export const GET = api(async ({ user, req }) => {
   const p = new URL(req.url).searchParams;
@@ -43,5 +43,13 @@ export const POST = api(async ({ user, req }) => {
     salesmanId: b.salesmanId || null, openingBalance: String(b.openingBalance || 0), balance: String(b.openingBalance || 0),
     notes: b.notes || null, status: "active",
   }).returning({ id: customers.id });
+  // Journal the opening balance so Trial Balance AR matches the customer khata totals.
+  const ob = Number(b.openingBalance || 0);
+  if (ob) await postJournal(db, user.businessId, {
+    date: todayStr(), refType: "opening", refId: row.id, memo: `Opening balance — ${b.name.trim()}`,
+    lines: ob > 0
+      ? [{ code: "AR", entityId: row.id, debit: ob }, { code: "CAPITAL", credit: ob }]
+      : [{ code: "AR", entityId: row.id, credit: -ob }, { code: "CAPITAL", debit: -ob }],
+  });
   return { id: row.id };
 });

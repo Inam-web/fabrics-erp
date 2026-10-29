@@ -27,11 +27,15 @@ export default function PaymentDialog({ open, onClose, party, accounts, salesmen
 
   useEffect(() => {
     if (open) {
+      /* Stateful-dialog reset: seed the editable form from props each time it opens. */
+      /* eslint-disable react-hooks/set-state-in-effect */
       setAmount(shortfall != null && shortfall > 0 ? String(shortfall) : Number(party.balance) > 0 ? String(Math.round(Number(party.balance))) : "");
       const cash = accounts.find((a) => a.type === "cash") || accounts[0];
       setAccountId(cash ? String(cash.id) : "");
       setErr("");
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, party.id, schedule?.id]);
 
   const bal = Number(party.balance || 0);

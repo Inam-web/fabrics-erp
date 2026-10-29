@@ -2,8 +2,8 @@ import { and, asc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { suppliers } from "@/db/schema";
 import { api, body } from "@/server/api.mjs";
-import { demoGuard } from "@/server/services.mjs";
-import { BizError } from "@/server/util.mjs";
+import { demoGuard, postJournal } from "@/server/services.mjs";
+import { BizError, todayStr } from "@/server/util.mjs";
 
 export const GET = api(async ({ user, req }) => {
   const q = new URL(req.url).searchParams.get("q") || "";
@@ -25,5 +25,13 @@ export const POST = api(async ({ user, req }) => {
     openingBalance: String(b.openingBalance || 0), balance: String(b.openingBalance || 0),
     paymentTerms: b.paymentTerms || "monthly", notes: b.notes || null,
   }).returning({ id: suppliers.id });
+  // Journal the opening payable so Trial Balance AP matches supplier khata totals.
+  const ob = Number(b.openingBalance || 0);
+  if (ob) await postJournal(db, user.businessId, {
+    date: todayStr(), refType: "opening", refId: row.id, memo: `Supplier opening — ${b.name.trim()}`,
+    lines: ob > 0
+      ? [{ code: "CAPITAL", debit: ob }, { code: "AP", entityId: row.id, credit: ob }]
+      : [{ code: "CAPITAL", credit: -ob }, { code: "AP", entityId: row.id, debit: -ob }],
+  });
   return { id: row.id };
 });

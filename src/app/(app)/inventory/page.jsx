@@ -1,6 +1,6 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { products, stock, warehouses, stockMovements, users } from "@/db/schema";
+import { products, stock, warehouses, stockMovements, users, businesses } from "@/db/schema";
 import { getUser } from "@/server/auth.mjs";
 import { redirect } from "next/navigation";
 import InventoryClient from "./_client";
@@ -15,6 +15,7 @@ export default async function InventoryPage() {
   const jar = await cookies();
   const t = makeT(getLang(jar.toString()).code);
   const b = user.businessId;
+  const [biz] = await db.select({ bizType: businesses.bizType }).from(businesses).where(eq(businesses.id, b)).limit(1);
 
   const stockAgg = db.select({
     productId: stock.productId,
@@ -28,6 +29,7 @@ export default async function InventoryPage() {
     wholesalePrice: products.wholesalePrice, retailPrice: products.retailPrice, vipPrice: products.vipPrice,
     minPrice: products.minPrice, mrp: products.mrp, hsn: products.hsn, saleDiscountPct: products.saleDiscountPct,
     notForSale: products.notForSale, productType: products.productType, description: products.description,
+    bizType: products.bizType, attributes: products.attributes,
     gstRate: products.gstRate,
     qty: sql`COALESCE(${stockAgg.qty},0)`,
     stockValue: sql`COALESCE(${stockAgg.val},0)`,
@@ -57,7 +59,7 @@ export default async function InventoryPage() {
         <h1 className="font-display text-xl font-bold">{t("Inventory")}</h1>
         <div className="text-sm text-mute">Stock belongs to a godown. Every purchase, sale, return, adjustment and transfer writes an immutable movement line.</div>
       </div>
-      <InventoryClient products={prods} byWarehouse={byWh} warehouses={whs} movements={movs} />
+      <InventoryClient products={prods} byWarehouse={byWh} warehouses={whs} movements={movs} bizType={biz?.bizType || "fabric"} />
     </div>
   );
 }

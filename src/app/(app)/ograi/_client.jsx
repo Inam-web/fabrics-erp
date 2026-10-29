@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Button, Badge, Modal, toast, ErrorNote } from "@/components/ui";
+import { Button, Badge, Modal, Field, toast, ErrorNote, AppIcon } from "@/components/ui";
 import { money, dateShort, daysBetween, title } from "@/lib/format";
 import PaymentDialog from "@/components/PaymentDialog";
 import { useT } from "@/lib/useT";
@@ -137,7 +137,7 @@ export default function OgraiBoard({ schedules, accounts, salesmen, today, summa
         ))}
         <div className="ml-auto flex gap-2">
           {canSchedule && <Button variant="outline" onClick={() => setGenOpen(true)}>{t("Schedule Collections")}</Button>}
-          <Button variant="outline" onClick={() => window.print()}>🖨 {t("Print")}</Button>
+          <Button variant="outline" onClick={() => window.print()}><AppIcon name="print" /> {t("Print")}</Button>
         </div>
       </div>
 
@@ -164,7 +164,7 @@ export default function OgraiBoard({ schedules, accounts, salesmen, today, summa
             </table>
           </div>
           <div className="rounded-lg border border-line bg-card p-4">
-            <h3 className="font-display font-bold text-sm mb-2">Today's routes ({new Date(today + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long" })})</h3>
+            <h3 className="font-display font-bold text-sm mb-2">Today&apos;s routes ({new Date(today + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long" })})</h3>
             {todaysRoute.length === 0 && <div className="text-sm text-mute">No routes defined for today. Define routes in Settings → Salesmen.</div>}
             {todaysRoute.map((r) => (
               <div key={r.id} className="border-b border-line-soft py-2">
@@ -197,7 +197,7 @@ export default function OgraiBoard({ schedules, accounts, salesmen, today, summa
               <h3 className="font-display font-bold text-sm">{t("Collected this week")}</h3>
               <span className="tnum text-sm font-bold text-ok">{money(receipts.reduce((a, r) => a + Number(r.amount), 0))}</span>
             </div>
-            <div className="text-[0.66rem] text-mute mb-2">Every receipt received since Monday — counted against each customer's weekly ograi.</div>
+            <div className="text-[0.66rem] text-mute mb-2">Every receipt received since Monday — counted against each customer&apos;s weekly ograi.</div>
             <div className="space-y-1.5 max-h-[480px] overflow-y-auto">
               {receipts.length === 0 && <div className="text-sm text-mute py-6 text-center">{t("Nothing collected yet this week.")}</div>}
               {receipts.map((r) => (

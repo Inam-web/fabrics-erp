@@ -29,8 +29,11 @@ export async function POST(req) {
           code: ott,
           smtpTo: u.email,
         });
-        // neutral response: does not reveal whether the account exists
-        return NextResponse.json({ ok: true, delivery: "mailbox", emailed: del.emailed });
+        // Neutral response: never reveals whether the account exists. `delivery`
+        // tells the client whether the code actually reached an inbox (SMTP/Resend
+        // configured) or only the owner's secure in-app mailbox. The code itself is
+        // never returned to the browser and never logged.
+        return NextResponse.json({ ok: true, delivery: del.emailed ? "email" : "mailbox", emailed: del.emailed });
       }
       return NextResponse.json({ ok: true, delivery: "mailbox", emailed: false });
     }

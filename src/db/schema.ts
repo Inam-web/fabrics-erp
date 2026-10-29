@@ -7,6 +7,7 @@ import {
   boolean,
   date,
   timestamp,
+  jsonb,
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -20,6 +21,7 @@ export const businesses = pgTable("businesses", {
   phone: text("phone"),
   address: text("address"),
   currency: text("currency").default("PKR").notNull(),
+  bizType: text("biz_type"), // tenant trade: chosen once then locked; null = not yet chosen. Key into src/lib/businessTypes.js
   taxPct: numeric("tax_pct", { precision: 6, scale: 2 }).default("0"),
   invoiceFooter: text("invoice_footer"),
   logo: text("logo"), // base64 data URL shown on invoices & reports
@@ -245,6 +247,8 @@ export const products = pgTable(
     mrp: numeric("mrp", { precision: 14, scale: 2 }).default("0"),
     saleDiscountPct: numeric("sale_discount_pct", { precision: 6, scale: 2 }).default("0"), // auto discount at billing
     productType: text("product_type").default("General"),
+    bizType: text("biz_type").default("fabric"), // trade template used when creating this item
+    attributes: jsonb("attributes"), // vertical-specific fields (batch/expiry, model/warranty, metal/carat, …)
     notForSale: boolean("not_for_sale").default(false),
     description: text("description"),
     active: boolean("active").default(true),

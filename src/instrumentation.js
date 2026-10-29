@@ -26,4 +26,11 @@ export async function register() {
   } catch (e) {
     console.warn("[startup] auto-seed skipped:", e?.message || e);
   }
+  try {
+    // Nightly JSON auto-backup into BACKUP_DIR — no-ops when the env var is unset.
+    const { startBackupScheduler } = await import("./server/backup.mjs");
+    startBackupScheduler();
+  } catch (e) {
+    console.warn("[startup] backup scheduler skipped:", e?.message || e);
+  }
 }

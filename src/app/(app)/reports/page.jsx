@@ -8,7 +8,7 @@ import { redirect } from "next/navigation";
 import { profitLoss, receivablesReport, payablesReport, dailyStats, weeklyComparison, salesmanPerformance, topProducts, getPartyLedger } from "@/server/services.mjs";
 import { todayStr, addDays, weekMonday, n0, r2 } from "@/server/util.mjs";
 import { money, compact, dateShort, dateFmt, daysBetween } from "@/lib/format";
-import { Tabs, Card, Badge, PrintButton } from "@/components/ui";
+import { Tabs, Card, Badge, PrintButton, EmptyState, AppIcon } from "@/components/ui";
 import { CloseDayButton } from "./_client";
 import LedgerView from "@/components/LedgerView";
 import LedgerPartyFilter from "./_ledgerfilter";
@@ -106,6 +106,7 @@ export default async function ReportsPage({ searchParams }) {
                 ["Gross profit", pl.grossProfit, true],
                 ...pl.expenses.map((e) => [`Expense — ${e.name}`, -e.total, false]),
                 ["Total expenses", -pl.totalExpenses, true],
+                ...(pl.stockLoss ? [["Stock loss / adjustments", -pl.stockLoss, false]] : []),
                 ["NET PROFIT", pl.netProfit, "net"],
               ].map(([label, val, strong], i) => (
                 <tr key={i} className={strong === "net" ? "border-t-2 border-ink" : strong ? "font-bold" : ""}>
@@ -161,7 +162,7 @@ export default async function ReportsPage({ searchParams }) {
             </Card>
           ))}
         </div>
-        <div className="overflow-x-auto rounded-lg border border-line bg-card">
+        <div className="overflow-x-auto tblwrap rounded-lg border border-line bg-card">
           <table className="tbl">
             <thead><tr><th>Customer</th><th>Area</th><th>Salesman</th><th className="num">Balance</th><th className="num">Overdue ograi</th><th className="num">Age</th><th className="num">Credit limit</th><th className="num">Available</th></tr></thead>
             <tbody>
@@ -200,7 +201,7 @@ export default async function ReportsPage({ searchParams }) {
             </Card>
           ))}
         </div>
-        <div className="overflow-x-auto rounded-lg border border-line bg-card">
+        <div className="overflow-x-auto tblwrap rounded-lg border border-line bg-card">
           <table className="tbl">
             <thead><tr><th>Supplier</th><th>City</th><th>Type</th><th className="num">We owe</th><th className="num">Age</th><th className="num">Share</th></tr></thead>
             <tbody>
@@ -297,7 +298,7 @@ export default async function ReportsPage({ searchParams }) {
     body = (
       <div className="space-y-4">
         <div className="flex justify-end no-print">
-          <Link href={`/api/export?type=gst&from=${from}&to=${to}`} className="rounded-md border border-line bg-white px-3.5 py-2 text-sm font-semibold hover:border-brand">⬇ Export GST data (for filing)</Link>
+          <Link href={`/api/export?type=gst&from=${from}&to=${to}`} className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3.5 py-2 text-sm font-semibold hover:border-brand"><AppIcon name="down" /> {t("Export GST data (for filing)")}</Link>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
           {[["Taxable sales", totTaxable], ["Total GST collected", totGst],
@@ -305,7 +306,7 @@ export default async function ReportsPage({ searchParams }) {
             <Card key={l} pad={false} className="px-3 py-2.5"><div className="text-[0.63rem] uppercase font-bold text-mute">{l}</div><div className="tnum font-bold text-lg">{money(v)}</div></Card>
           ))}
         </div>
-        <div className="overflow-x-auto rounded-lg border border-line bg-card">
+        <div className="overflow-x-auto tblwrap rounded-lg border border-line bg-card">
           <table className="tbl">
             <thead><tr><th>GST type</th><th className="num">Invoices</th><th className="num">Taxable value</th><th className="num">GST amount</th></tr></thead>
             <tbody>
@@ -321,7 +322,7 @@ export default async function ReportsPage({ searchParams }) {
             </tbody>
           </table>
         </div>
-        <div className="text-xs text-mute">GST is computed per item from the fabric's GST % in the product master, server-side. Rates are set in Inventory → New Fabric.</div>
+        <div className="text-xs text-mute">GST is computed per item from the fabric&apos;s GST % in the product master, server-side. Rates are set in Inventory → New Fabric.</div>
       </div>
     );
   }
@@ -342,7 +343,7 @@ export default async function ReportsPage({ searchParams }) {
           <div><label className="text-[0.65rem] font-bold uppercase text-mute">Date</label><input type="date" name="date" defaultValue={date} className="inp mt-0.5" /></div>
           <button className="rounded-md bg-brand text-white text-sm font-semibold px-4 py-2">Load</button>
         </form>
-        <div className="overflow-x-auto rounded-lg border border-line bg-card">
+        <div className="overflow-x-auto tblwrap rounded-lg border border-line bg-card">
           <table className="tbl">
             <thead><tr><th>Time</th><th>Type</th><th>Document</th><th>Party / detail</th><th className="num">Amount</th></tr></thead>
             <tbody>
@@ -493,11 +494,11 @@ export default async function ReportsPage({ searchParams }) {
       // account ledger
       const def = CHART.find((c) => c.code === codeSel) || CHART[0];
       const open = openingFor(codeSel, entityId);
-      let run = open;
-      const rowsOut = lines.map((l) => {
-        run = r2(run + Number(l.debit) - Number(l.credit));
-        return { ...l, debit: Number(l.debit), credit: Number(l.credit), balance: sideOf(codeSel) === "credit" ? -run : run };
-      });
+      const creditSide = sideOf(codeSel) === "credit";
+      const rowsOut = lines.reduce((acc, l) => {
+        const run = r2(acc.run + Number(l.debit) - Number(l.credit));
+        return { run, rows: [...acc.rows, { ...l, debit: Number(l.debit), credit: Number(l.credit), balance: creditSide ? -run : run }] };
+      }, { run: open, rows: [] }).rows;
       body = (
         <div className="space-y-4">
           <LedgerSubNav view="account" sp={sp} t={t} />
@@ -631,7 +632,7 @@ export default async function ReportsPage({ searchParams }) {
   if (tab === "salesmen") {
     const rows = await salesmanPerformance(b, from, to);
     body = (
-      <div className="overflow-x-auto rounded-lg border border-line bg-card">
+      <div className="overflow-x-auto tblwrap rounded-lg border border-line bg-card">
         <table className="tbl">
           <thead><tr><th>Salesman</th><th>Commission rule</th><th className="num">Sales ({dateShort(from)}→{dateShort(to)})</th><th className="num">Collections</th><th className="num">Commission earned</th></tr></thead>
           <tbody>
@@ -666,7 +667,7 @@ export default async function ReportsPage({ searchParams }) {
           <div className="text-sm text-mute">Computed live from the transaction books — never from cached totals.</div>
         </div>
         <div className="flex gap-2 no-print">
-          <PrintButton label="🖨 Print" size="md" />
+          <PrintButton size="md" />
           <Link href={`/api/export?type=sales&from=${from}&to=${to}`} className="rounded-md border border-line bg-white px-3.5 py-2 text-sm font-semibold hover:border-brand">Sales CSV</Link>
           <Link href="/api/export?type=payments" className="rounded-md border border-line bg-white px-3.5 py-2 text-sm font-semibold hover:border-brand">Payments CSV</Link>
         </div>

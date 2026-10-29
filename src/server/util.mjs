@@ -13,8 +13,10 @@ export function todayStr() {
 }
 
 export function addDays(dateStr, days) {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + days);
+  // Pure calendar-day math in UTC: parsing local midnight and re-serialising with
+  // toISOString() shifted every result one day back for UTC+ zones (e.g. Karachi).
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
 

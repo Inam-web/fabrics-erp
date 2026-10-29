@@ -6,6 +6,7 @@ import {
 } from "@/server/services.mjs";
 import { deliverToOwner, smtpConfigured } from "@/server/mail.mjs";
 import { BizError } from "@/server/util.mjs";
+import { BIZ_KEYS } from "@/lib/businessTypes";
 import { db } from "@/db";
 import { businesses, users } from "@/db/schema";
 import { and, eq, sql } from "drizzle-orm";
@@ -78,12 +79,15 @@ export async function POST(req) {
     if (!b.ownerName?.trim()) throw new BizError("Your name is required");
     if (!/^\S+@\S+\.\S+$/.test(String(b.email || "").trim())) throw new BizError("Enter a valid email address");
     if (String(b.password || "").length < 6) throw new BizError("Password must be at least 6 characters");
+    const bizType = BIZ_KEYS.includes(b.bizType) ? b.bizType : "fabric";
+    const address = b.address ? String(b.address).trim().slice(0, 300) : null;
     // 1) create the pending registration first (account exists, locked until verified)
     let result;
     try {
       result = await registerBusiness({
         businessName: b.businessName, ownerName: b.ownerName,
         email: b.email, phone: b.phone || null,
+        address, bizType,
         passwordHash: hashPassword(b.password), status: "pending",
       });
     } catch (e) {

@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
-import { money, dateShort } from "@/lib/format";
-import { Button } from "./ui";
+import { money, dateShort, waPhone } from "@/lib/format";
+import { Button, AppIcon } from "./ui";
 import { useT } from "@/lib/useT";
 import { BRAND } from "@/lib/brand.mjs";
 
@@ -53,7 +53,7 @@ export default function LedgerView({ rows, party, kind, whatsappPhone, exportHre
         <div className="ml-auto flex gap-2">
           {whatsappPhone && (
             <a className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3 py-1.5 text-xs font-bold hover:border-brand"
-              href={`https://wa.me/${String(whatsappPhone).replace(/[^0-9]/g, "")}?text=${whatsappMsg}`} target="_blank" rel="noreferrer">
+              href={`https://wa.me/${waPhone(whatsappPhone)}?text=${whatsappMsg}`} target="_blank" rel="noreferrer">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 00-8.6 15L2 22l5.2-1.4A10 10 0 1012 2zm5 13.9c-.2.6-1.2 1.2-1.7 1.2-.5.1-1 .2-3.3-.7-2.8-1.1-4.6-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.4l.9 2.1c.1.2.1.4 0 .6l-.4.6-.5.5c-.2.2-.3.4-.1.7.2.3.9 1.4 1.9 2.3 1.3 1.2 2.4 1.5 2.7 1.7.3.1.5.1.7-.1l1-1.2c.2-.3.4-.2.7-.1l2.1 1c.3.2.5.3.6.4 0 .2 0 .7-.2 1.3z"/></svg>
               {t("WhatsApp balance")}
             </a>
@@ -61,11 +61,11 @@ export default function LedgerView({ rows, party, kind, whatsappPhone, exportHre
           {exportHref && (
             <a className="rounded-md border border-line bg-white px-3 py-1.5 text-xs font-bold hover:border-brand" href={exportHref}>{t("Export CSV")}</a>
           )}
-          <Button size="sm" variant="outline" onClick={() => window.print()}>🖨 {t("Print Statement")}</Button>
+          <Button size="sm" variant="outline" onClick={() => window.print()}><AppIcon name="print" /> {t("Print Statement")}</Button>
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-line bg-card">
+      <div className="overflow-x-auto tblwrap rounded-lg border border-line bg-card">
         <table className="tbl">
           <thead>
             <tr>

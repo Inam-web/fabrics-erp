@@ -2,20 +2,31 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Modal, Field, Button, Badge, ErrorNote, toast } from "@/components/ui";
+import { Modal, Field, Button, Badge, ErrorNote, toast, SortHeader } from "@/components/ui";
 import { money } from "@/lib/format";
 import PaymentDialog from "@/components/PaymentDialog";
 import { useT } from "@/lib/useT";
 
+const SORTERS = {
+  code: (s) => s.code, name: (s) => s.name.toLowerCase(), city: (s) => (s.city || "").toLowerCase(),
+  category: (s) => s.category, paymentTerms: (s) => s.paymentTerms, balance: (s) => Number(s.balance),
+};
+
 export function SuppliersTable({ suppliers }) {
   const t = useT();
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [onlyDue, setOnlyDue] = useState(false);
-  const rows = useMemo(() => suppliers.filter((s) => {
+  const [sort, setSort] = useState({ k: "name", dir: "asc" });
+  const filtered = useMemo(() => suppliers.filter((s) => {
     if (onlyDue && Number(s.balance) <= 0) return false;
     if (q && !`${s.name} ${s.phone || ""} ${s.code}`.toLowerCase().includes(q.toLowerCase())) return false;
     return true;
   }), [suppliers, q, onlyDue]);
+  const rows = useMemo(() => {
+    const f = SORTERS[sort.k] || SORTERS.name, mul = sort.dir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => { const x = f(a), y = f(b); return x < y ? -mul : x > y ? mul : 0; });
+  }, [filtered, sort]);
 
   return (
     <div>
@@ -28,12 +39,19 @@ export function SuppliersTable({ suppliers }) {
           {rows.length} suppliers · payable {money(rows.reduce((a, s) => a + Math.max(0, Number(s.balance)), 0))}
         </div>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-line bg-card">
+      <div className="overflow-x-auto tblwrap rounded-lg border border-line bg-card">
         <table className="tbl">
-          <thead><tr><th>{t("Code")}</th><th>{t("Supplier")}</th><th>{t("City")} · {t("Phone")}</th><th>{t("Type")}</th><th>{t("Terms")}</th><th className="num">{t("Balance")}</th></tr></thead>
+          <thead><tr>
+            <SortHeader label={t("Code")} k="code" sort={sort.k} dir={sort.dir} setSort={setSort} />
+            <SortHeader label={t("Supplier")} k="name" sort={sort.k} dir={sort.dir} setSort={setSort} />
+            <SortHeader label={`${t("City")} · ${t("Phone")}`} k="city" sort={sort.k} dir={sort.dir} setSort={setSort} />
+            <SortHeader label={t("Type")} k="category" sort={sort.k} dir={sort.dir} setSort={setSort} />
+            <SortHeader label={t("Terms")} k="paymentTerms" sort={sort.k} dir={sort.dir} setSort={setSort} />
+            <SortHeader label={t("Balance")} k="balance" sort={sort.k} dir={sort.dir} setSort={setSort} num />
+          </tr></thead>
           <tbody>
             {rows.map((s) => (
-              <tr key={s.id}>
+              <tr key={s.id} className="rowlink" onClick={() => router.push(`/suppliers/${s.id}`)}>
                 <td className="text-mute tnum">{s.code}</td>
                 <td><Link href={`/suppliers/${s.id}`} className="font-semibold hover:text-brand">{s.name}</Link><div className="text-[0.68rem] text-mute">{s.contactPerson}</div></td>
                 <td className="text-xs text-mute">{s.city || "—"}<br />{s.phone}</td>

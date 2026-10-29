@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, desc, eq, gte, ilike, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { sales, customers, salesmen } from "@/db/schema";
 import { getUser } from "@/server/auth.mjs";
@@ -28,6 +28,31 @@ export default async function SalesPage({ searchParams }) {
   if (sp.src === "retail") conds.push(and(eq(sales.saleKind, "retail"), sql`NOT ${manualSub}`));
   if (sp.src === "manual") conds.push(manualSub);
   const where = and(...conds);
+  // URL-driven column sorting (?sort=&dir=) — whitelist keeps SQL safe, default stays newest first
+  const SORTS = { invoice: sales.invoiceNo, date: sales.date, total: sales.total, paid: sales.paid, balance: sales.balance };
+  const skey = SORTS[sp.sort] ? sp.sort : "date";
+  const sasc = sp.dir === "asc";
+  const orderBy = skey === "date"
+    ? (sasc ? [asc(sales.date), asc(sales.id)] : [desc(sales.date), desc(sales.id)])
+    : [(sasc ? asc : desc)(SORTS[skey]), desc(sales.id)];
+  const sortHref = (key) => {
+    const nd = skey === key && sasc ? "desc" : "asc";
+    const ps = new URLSearchParams();
+    if (sp.q) ps.set("q", sp.q);
+    if (sp.from) ps.set("from", sp.from);
+    if (sp.to) ps.set("to", sp.to);
+    if (sp.src) ps.set("src", sp.src);
+    ps.set("sort", key); ps.set("dir", nd);
+    return `/sales?${ps.toString()}`;
+  };
+  // plain helper (not a component) — returns a sortable header cell
+  const thSort = (label, k, num) => (
+    <th key={k} className={num ? "num" : undefined}>
+      <Link href={sortHref(k)} className={`inline-flex items-center gap-1 uppercase tracking-[0.07em] font-extrabold text-[0.68rem] ${num ? "flex-row-reverse" : ""} ${skey === k ? "text-brand-deep" : ""}`}>
+        {label}<span className="text-[0.55rem] opacity-70">{skey === k ? (sasc ? "▲" : "▼") : "↕"}</span>
+      </Link>
+    </th>
+  );
   const [agg] = await db.select({ n: sql`COUNT(*)`, total: sql`COALESCE(SUM(${sales.total}::numeric),0)`, outstanding: sql`COALESCE(SUM(${sales.balance}::numeric),0)` }).from(sales).where(where);
   const rows = await db.select({
     id: sales.id, invoiceNo: sales.invoiceNo, date: sales.date, total: sales.total, paid: sales.paid,
@@ -35,10 +60,10 @@ export default async function SalesPage({ searchParams }) {
     hasManual: sql`EXISTS(SELECT 1 FROM sale_items i JOIN products p ON p.id=i.product_id WHERE i.sale_id=${sales.id} AND p.source='retail')`,
     customer: customers.name, customerId: sales.customerId, salesman: salesmen.name,
   }).from(sales).innerJoin(customers, eq(customers.id, sales.customerId)).leftJoin(salesmen, eq(salesmen.id, sales.salesmanId))
-    .where(where).orderBy(desc(sales.date), desc(sales.id)).limit(per).offset((page - 1) * per);
+    .where(where).orderBy(...orderBy).limit(per).offset((page - 1) * per);
   const custs = await db.select({ id: customers.id, name: customers.name }).from(customers).where(eq(customers.businessId, user.businessId));
   const pages = Math.max(1, Math.ceil(Number(agg.n) / per));
-  const base = `/sales${sp.q || sp.from || sp.to ? `?${sp.q ? `q=${sp.q}&` : ""}${sp.from ? `from=${sp.from}&` : ""}${sp.to ? `to=${sp.to}&` : ""}`.replace(/&$/, "") : ""}`;
+  const base = `/sales?${(() => { const ps = new URLSearchParams(); if (sp.q) ps.set("q", sp.q); if (sp.from) ps.set("from", sp.from); if (sp.to) ps.set("to", sp.to); if (sp.src) ps.set("src", sp.src); if (sp.sort) ps.set("sort", sp.sort); if (sp.dir) ps.set("dir", sp.dir); return ps.toString().replace(/&$/, ""); })()}`;
 
   return (
     <div className="space-y-3">
@@ -78,9 +103,9 @@ export default async function SalesPage({ searchParams }) {
         <button className="rounded-md bg-brand text-white text-sm font-semibold px-4 py-2">Filter</button>
       </form>
 
-      <div className="overflow-x-auto rounded-lg border border-line bg-card">
+      <div className="overflow-x-auto tblwrap rounded-lg border border-line bg-card">
         <table className="tbl">
-          <thead><tr><th>{t("Invoice")}</th><th>{t("Date")}</th><th>{t("Customer")}</th><th>{t("Salesman")}</th><th className="num">{t("Total")}</th><th className="num">{t("Paid")}</th><th className="num">{t("Balance")}</th><th>{t("Status")}</th></tr></thead>
+          <thead><tr>{thSort(t("Invoice"), "invoice")}{thSort(t("Date"), "date")}<th>{t("Customer")}</th><th>{t("Salesman")}</th>{thSort(t("Total"), "total", true)}{thSort(t("Paid"), "paid", true)}{thSort(t("Balance"), "balance", true)}<th>{t("Status")}</th></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id}>

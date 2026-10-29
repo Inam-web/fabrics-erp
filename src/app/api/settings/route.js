@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { users, accounts, salesmen, salesmanRoutes, businesses, auditLogs, dayClosings, warehouses, branches, employees, expenseCategories, demoGrants, demoUsage, sessions, sales, payments, stockMovements, ownerMailbox } from "@/db/schema";
+import { users, accounts, salesmen, salesmanRoutes, businesses, auditLogs, dayClosings, warehouses, branches, employees, expenseCategories, demoGrants, demoUsage, sessions, sales, payments, stockMovements, ownerMailbox, purchases, salesReturns, purchaseReturns, expenses, accountTransfers, passwordResets } from "@/db/schema";
 import { hashPassword } from "@/server/auth.mjs";
 import { api, body } from "@/server/api.mjs";
 import { addAccount, closeDay, addExpense, DEMO_MODULES, DEMO_LIMIT } from "@/server/services.mjs";
@@ -40,7 +40,7 @@ export const GET = api(async ({ user }) => {
 
 export const POST = api(async ({ user, req }) => {
   const b = await body(req);
-  if (!["owner", "manager"].includes(user.role) && !["add_account", "close_day"].includes(b.action)) {
+  if (!["owner", "manager"].includes(user.role) && !["add_account", "close_day", "set_biz_type"].includes(b.action)) {
     throw new BizError("Only owner/manager can change settings", 403);
   }
   if (b.action === "add_account" && !["owner", "manager", "accountant"].includes(user.role)) {
@@ -52,8 +52,16 @@ export const POST = api(async ({ user, req }) => {
       await db.update(businesses).set({
         name: b.name, phone: b.phone || null, address: b.address || null,
         taxPct: String(b.taxPct || 0), invoiceFooter: b.invoiceFooter || null,
+        ...(b.bizType ? { bizType: String(b.bizType) } : {}),
         ...(logo !== undefined ? { logo: logo || null } : {}),
       }).where(eq(businesses.id, user.businessId));
+      return { ok: true };
+    }
+    case "set_biz_type": {
+      // Chosen in Inventory → Products; remembered for the whole business and changeable anytime (not locked).
+      if (!["owner", "manager", "warehouse", "demo"].includes(user.role)) throw new BizError("Not allowed to change the business type", 403);
+      if (!b.bizType) throw new BizError("Business type is required");
+      await db.update(businesses).set({ bizType: String(b.bizType) }).where(eq(businesses.id, user.businessId));
       return { ok: true };
     }
     case "add_user": {
@@ -75,6 +83,26 @@ export const POST = api(async ({ user, req }) => {
       if (!u || u.businessId !== user.businessId) throw new BizError("User not found", 404);
       if (u.id === user.id) throw new BizError("You cannot deactivate your own account");
       await db.update(users).set({ active: !u.active }).where(eq(users.id, u.id));
+      return { ok: true };
+    }
+    case "update_user": {
+      const [u] = await db.select().from(users).where(eq(users.id, Number(b.id))).limit(1);
+      if (!u || u.businessId !== user.businessId) throw new BizError("User not found", 404);
+      const name = String(b.name || "").trim(), email = String(b.email || "").toLowerCase().trim(), phone = String(b.phone || "").trim() || null;
+      if (!name || !email) throw new BizError("Name and email are required");
+      const dup = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+      if (dup.length && dup[0].id !== u.id) throw new BizError("That email is already registered");
+      const patch = { name, email, phone };
+      if (b.role && b.role !== u.role) {
+        if (!["owner", "manager", "accountant", "salesman", "cashier", "warehouse"].includes(b.role)) throw new BizError("Unknown role");
+        if (u.id === user.id) throw new BizError("You cannot change your own role");
+        if (user.role !== "owner" && (u.role === "owner" || b.role === "owner")) throw new BizError("Only the owner can change owner accounts");
+        const [dbz] = await db.select({ id: businesses.id }).from(businesses).where(eq(businesses.isDemo, true)).limit(1);
+        if (dbz && u.businessId === dbz.id && u.email === "demo@afriditech.pk") throw new BizError("The demo control account's role is permanent");
+        patch.role = b.role;
+      }
+      await db.update(users).set(patch).where(eq(users.id, u.id));
+      await db.insert(auditLogs).values({ businessId: user.businessId, userId: user.id, action: `Updated user ${u.id} (${name} · ${email}${patch.role ? ` · role ${u.role}→${patch.role}` : ""})`, entityType: "user", entityId: u.id });
       return { ok: true };
     }
     case "add_salesman": {
@@ -145,10 +173,17 @@ export const POST = api(async ({ user, req }) => {
         await db.transaction(async (t) => {
           await t.delete(sessions).where(eq(sessions.grantId, id));
           if (du) {
-            // release any FK references held by the demo user, then remove the user
+            // release every FK reference to users.id (see schema) before removing the user
             await t.delete(sessions).where(eq(sessions.userId, du.id));
+            await t.delete(passwordResets).where(eq(passwordResets.userId, du.id)); // user_id is NOT NULL
             await t.update(sales).set({ createdBy: null }).where(eq(sales.createdBy, du.id));
+            await t.update(purchases).set({ createdBy: null }).where(eq(purchases.createdBy, du.id));
+            await t.update(salesReturns).set({ createdBy: null }).where(eq(salesReturns.createdBy, du.id));
+            await t.update(purchaseReturns).set({ createdBy: null }).where(eq(purchaseReturns.createdBy, du.id));
             await t.update(payments).set({ createdBy: null }).where(eq(payments.createdBy, du.id));
+            await t.update(expenses).set({ createdBy: null }).where(eq(expenses.createdBy, du.id));
+            await t.update(accountTransfers).set({ createdBy: null }).where(eq(accountTransfers.createdBy, du.id));
+            await t.update(dayClosings).set({ closedBy: null }).where(eq(dayClosings.closedBy, du.id));
             await t.update(stockMovements).set({ userId: null }).where(eq(stockMovements.userId, du.id));
             await t.update(auditLogs).set({ userId: null }).where(eq(auditLogs.userId, du.id));
             await t.delete(users).where(eq(users.id, du.id));

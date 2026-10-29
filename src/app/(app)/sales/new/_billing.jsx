@@ -8,6 +8,8 @@ import { money, num, qtyFmt } from "@/lib/format";
 import { useT } from "@/lib/useT";
 
 const r2 = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
+// Same rule the Customers module uses to split "Business Accounts" from "Retail / Counter Buyers".
+const isCounter = (c) => c.paymentTerms === "cash" || c.code === "WALKIN";
 
 export default function BillingClient({ customers, products, stockRows, warehouses, salesmen, accounts, customerPrices, defaultWarehouseId, canOverride, initialCustomerId, initialProductId, retailWarehouseId }) {
   const router = useRouter();
@@ -48,17 +50,12 @@ export default function BillingClient({ customers, products, stockRows, warehous
   const searchRef = useRef(null);
 
   useEffect(() => {
+    // Sync recently-used ids from localStorage after mount. This is a browser-only API;
+    // reading it in a lazy useState initializer would render different markup on the server
+    // and cause a hydration mismatch, so syncing in an effect is the correct pattern here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     try { setRecent(JSON.parse(localStorage.getItem("faberp_recent") || "[]")); } catch { /* ignore */ }
   }, []);
-
-  // prefill a product when arriving from the product details page
-  useEffect(() => {
-    if (initialProductId) {
-      const p = products.find((x) => x.id === initialProductId);
-      if (p) addProduct(p);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialProductId]);
 
   const customer = allCustomers.find((c) => String(c.id) === customerId);
   const stockMap = useMemo(() => {
@@ -106,10 +103,11 @@ export default function BillingClient({ customers, products, stockRows, warehous
   const custMatches = useMemo(() => {
     if (!custQ.trim()) return customers.slice(0, 0);
     const q = custQ.toLowerCase();
-    // walk-in counter customer belongs to Retail/Individual mode only
-    const pool = saleKind === "wholesale" ? allCustomers.filter((c) => c.code !== "WALKIN") : allCustomers;
+    // Wholesale billing lists only the business/wholesale accounts (the customers we deal with
+    // wholesale); cash/counter buyers and walk-in stay on the Retail / Individual tab.
+    const pool = saleKind === "wholesale" ? allCustomers.filter((c) => !isCounter(c)) : allCustomers;
     return pool.filter((c) => c.name.toLowerCase().includes(q) || (c.phone || "").includes(q) || c.code.toLowerCase().includes(q)).slice(0, 8);
-  }, [custQ, customers, saleKind]);
+  }, [custQ, customers, allCustomers, saleKind]);
 
   async function createInlineCustomer(name) {
     try {
@@ -139,6 +137,17 @@ export default function BillingClient({ customers, products, stockRows, warehous
     setQ(""); setHi(-1); setDropOpen(false);
     searchRef.current?.blur();
   }
+
+  // prefill a product when arriving from the product details page
+  useEffect(() => {
+    if (initialProductId) {
+      const p = products.find((x) => x.id === initialProductId);
+      // addProduct seeds the bill line from the incoming product (one-shot on mount).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (p) addProduct(p);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialProductId]);
 
   function onSearchKey(e) {
     if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => Math.min(h + 1, matches.length - 1)); }
@@ -359,7 +368,7 @@ export default function BillingClient({ customers, products, stockRows, warehous
               {lines.length === 0 && (
                 <tr><td colSpan="8" className="text-center text-mute py-10">
                   No items yet — search a fabric above or scan a barcode.<br />
-                  <span className="text-xs">Rates load automatically from the customer's price level.</span>
+                  <span className="text-xs">Rates load automatically from the customer&apos;s price level.</span>
                 </td></tr>
               )}
               {lines.map((l, i) => {
@@ -454,7 +463,7 @@ export default function BillingClient({ customers, products, stockRows, warehous
           )}
           {lines.some((l) => l.minPrice > 0 && l.rate < l.minPrice) && (
             <div className="mt-3 rounded-md bg-danger-soft border border-danger/25 px-3 py-2 text-xs">
-              <div className="font-bold text-danger">A rate is below the product's minimum sale price.</div>
+              <div className="font-bold text-danger">A rate is below the product&apos;s minimum sale price.</div>
               {canOverride ? (
                 <label className="flex items-center gap-1.5 mt-1.5 font-semibold">
                   <input type="checkbox" checked={overridePrice} onChange={(e) => setOverridePrice(e.target.checked)} />

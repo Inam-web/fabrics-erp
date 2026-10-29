@@ -1,9 +1,9 @@
 import { and, asc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { products, stock, stockMovements, warehouses } from "@/db/schema";
+import { products, stock, stockMovements, warehouses, businesses } from "@/db/schema";
 import { api, body } from "@/server/api.mjs";
-import { demoGuard } from "@/server/services.mjs";
-import { BizError } from "@/server/util.mjs";
+import { demoGuard, postJournal } from "@/server/services.mjs";
+import { BizError, todayStr } from "@/server/util.mjs";
 
 export const GET = api(async ({ user, req }) => {
   const p = new URL(req.url).searchParams;
@@ -25,6 +25,7 @@ export const GET = api(async ({ user, req }) => {
     active: products.active, quality: products.quality, season: products.season, gstRate: products.gstRate,
     hsn: products.hsn, minPrice: products.minPrice, mrp: products.mrp, saleDiscountPct: products.saleDiscountPct,
     productType: products.productType, notForSale: products.notForSale, description: products.description,
+    bizType: products.bizType, attributes: products.attributes,
     qty: sql`COALESCE(${stockAgg.qty},0)`,
     stockValue: sql`COALESCE(${stockAgg.val},0)`,
   }).from(products).leftJoin(stockAgg, eq(stockAgg.productId, products.id)).where(and(...conds)).orderBy(asc(products.name), asc(products.color)).limit(500);
@@ -43,6 +44,7 @@ export const POST = api(async ({ user, req }) => {
   const openQty = Number(b.openingStock) || 0;
   if (openQty < 0) throw new BizError("Opening stock cannot be negative");
   if (openQty > 0 && !b.warehouseId && source !== "retail") throw new BizError("Select a godown for the opening stock");
+  const attributes = (b.attributes && typeof b.attributes === "object" && !Array.isArray(b.attributes)) ? b.attributes : null;
   return db.transaction(async (t) => {
     // manual retail products live in the dedicated Retail Shop godown by default
     let whId = b.warehouseId ? Number(b.warehouseId) : null;
@@ -53,6 +55,9 @@ export const POST = api(async ({ user, req }) => {
     }
     const [count] = await t.select({ n: sql`COUNT(*)` }).from(products).where(eq(products.businessId, user.businessId));
     const sku = b.sku?.trim() || `ITM-${String(Number(count.n) + 101)}`;
+    // Business type is chosen here and remembered for the whole business (persists across sessions, changeable anytime).
+    const bizType = b.bizType || "fabric";
+    await t.update(businesses).set({ bizType }).where(eq(businesses.id, user.businessId));
     const [row] = await t.insert(products).values({
       businessId: user.businessId, sku, barcode: b.barcode || null, name: b.name.trim(),
       fabricType: b.group || b.name.trim(), design: b.design || "Plain", color: b.color || null,
@@ -64,6 +69,7 @@ export const POST = api(async ({ user, req }) => {
       reorderLevel: String(b.reorderLevel || 0), gstRate: String(b.gstRate || 0),
       hsn: b.hsn || null, minPrice: String(b.minPrice || 0), mrp: String(b.mrp || 0),
       saleDiscountPct: String(b.saleDiscountPct || 0), productType: b.productType || "General",
+      bizType, attributes,
       notForSale: !!b.notForSale, description: b.description || null,
     }).returning({ id: products.id });
     if (openQty > 0) {
@@ -74,6 +80,12 @@ export const POST = api(async ({ user, req }) => {
         businessId: user.businessId, productId: row.id, warehouseId: whId, type: "opening",
         qty: String(openQty), prevQty: "0", newQty: String(openQty), refType: "product_create", userId: user.id,
         reason: "Opening stock",
+      });
+      // Opening stock is owner-funded inventory: Dr INVENTORY / Cr CAPITAL (keeps the trial balance whole).
+      const val = Math.round(openQty * cost * 100) / 100;
+      if (val > 0) await postJournal(t, user.businessId, {
+        date: todayStr(), refType: "stock_adjust", refId: row.id, memo: `Opening stock — ${b.name.trim()}`,
+        lines: [{ code: "INVENTORY", debit: val }, { code: "CAPITAL", credit: val }],
       });
     }
     return { id: row.id };

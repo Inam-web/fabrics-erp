@@ -133,6 +133,11 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_cheques_business ON cheques(business_id)`,
   `CREATE INDEX IF NOT EXISTS idx_accounts_business ON accounts(business_id)`,
   `CREATE INDEX IF NOT EXISTS idx_warehouses_business ON warehouses(business_id)`,
+  // ---- multi-trade generalisation: business type + vertical-specific attributes ----
+  // businesses.biz_type stays NULL until the owner chooses once (then locked).
+  `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS biz_type text`,
+  `ALTER TABLE products ADD COLUMN IF NOT EXISTS biz_type text DEFAULT 'fabric'`,
+  `ALTER TABLE products ADD COLUMN IF NOT EXISTS attributes jsonb`,
 ];
 
 export async function ensureSchema() {

@@ -1,14 +1,20 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Modal, Field, Badge, ErrorNote, toast } from "@/components/ui";
+import { Button, Modal, Field, Badge, ErrorNote, toast, SortHeader } from "@/components/ui";
 import { money, qtyFmt, dtFmt } from "@/lib/format";
 import { LabelDialog } from "@/components/Barcode";
+import { ImportCsvButton } from "@/components/ImportDialog";
 import { useT } from "@/lib/useT";
+import { BUSINESS_TYPES, getBiz } from "@/lib/businessTypes";
 
 const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+const SORTERS = {
+  name: (p) => `${p.name} ${p.color}`.toLowerCase(), price: (p) => Number(p.wholesalePrice),
+  total: (p) => Number(p.qty), value: (p) => Number(p.stockValue),
+};
 
-export default function InventoryClient({ products, byWarehouse, warehouses, movements }) {
+export default function InventoryClient({ products, byWarehouse, warehouses, movements, bizType = "fabric" }) {
   const t = useT();
   const router = useRouter();
   const [tab, setTab] = useState("stock");
@@ -19,6 +25,7 @@ export default function InventoryClient({ products, byWarehouse, warehouses, mov
   const [trfOpen, setTrfOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [labelFor, setLabelFor] = useState(null);
+  const [sort, setSort] = useState({ k: "name", dir: "asc" });
 
   const whQty = useMemo(() => {
     const m = {};
@@ -26,12 +33,17 @@ export default function InventoryClient({ products, byWarehouse, warehouses, mov
     return m;
   }, [byWarehouse]);
 
-  const rows = useMemo(() => products.filter((p) => {
+  const filtered = useMemo(() => products.filter((p) => {
     const qty = Number(p.qty);
     if (onlyLow && !(qty <= Number(p.reorderLevel) && Number(p.reorderLevel) > 0)) return false;
     if (!q) return true;
     return `${p.name} ${p.color} ${p.design} ${p.sku} ${p.barcode} ${p.brand} ${p.hsn || ""}`.toLowerCase().includes(q.toLowerCase());
   }), [products, q, onlyLow]);
+
+  const rows = useMemo(() => {
+    const f = SORTERS[sort.k] || SORTERS.name, mul = sort.dir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => { const x = f(a), y = f(b); return x < y ? -mul : x > y ? mul : 0; });
+  }, [filtered, sort]);
 
   const totalQty = rows.reduce((a, p) => a + Number(p.qty), 0);
   const totalValue = rows.reduce((a, p) => a + Number(p.stockValue), 0);
@@ -44,6 +56,7 @@ export default function InventoryClient({ products, byWarehouse, warehouses, mov
             className={`rounded-md px-3 py-1.5 text-sm font-bold border ${tab === k ? "bg-brand text-white border-brand" : "bg-white border-line hover:border-brand"}`}>{l}</button>
         ))}
         <div className="ml-auto flex flex-wrap gap-2">
+          <ImportCsvButton entity="products" />
           <Button variant="outline" onClick={() => setAdjOpen(true)}>{t("Stock Adjustment")}</Button>
           <Button variant="outline" onClick={() => setTrfOpen(true)}>{t("Transfer Between Godowns")}</Button>
           <Button onClick={() => setNewOpen(true)}>{t("+ Add New Product")}</Button>
@@ -59,13 +72,17 @@ export default function InventoryClient({ products, byWarehouse, warehouses, mov
             </label>
             <div className="ml-auto text-xs text-mute tnum">{rows.length} products · {qtyFmt(totalQty)} units · value {money(totalValue)}</div>
           </div>
-          <div className="overflow-x-auto rounded-lg border border-line bg-card">
+          <div className="overflow-x-auto tblwrap rounded-lg border border-line bg-card">
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>{t("Product")}</th><th>{t("Code")} / HSN</th><th>{t("Price")}</th>
+                  <SortHeader label={t("Product")} k="name" sort={sort.k} dir={sort.dir} setSort={setSort} />
+                  <th>{t("Code")} / HSN</th>
+                  <SortHeader label={t("Price")} k="price" sort={sort.k} dir={sort.dir} setSort={setSort} num />
                   {warehouses.map((w) => <th key={w.id} className="num">{w.name}</th>)}
-                  <th className="num">{t("Total")}</th><th className="num">{t("Value")}</th><th></th>
+                  <SortHeader label={t("Total")} k="total" sort={sort.k} dir={sort.dir} setSort={setSort} num />
+                  <SortHeader label={t("Value")} k="value" sort={sort.k} dir={sort.dir} setSort={setSort} num />
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -73,7 +90,7 @@ export default function InventoryClient({ products, byWarehouse, warehouses, mov
                   const qty = Number(p.qty);
                   const low = Number(p.reorderLevel) > 0 && qty <= Number(p.reorderLevel);
                   return (
-                    <tr key={p.id} className={p.notForSale ? "opacity-60" : ""}>
+                    <tr key={p.id} className={`rowlink ${p.notForSale ? "opacity-60" : ""}`} onClick={() => router.push(`/inventory/${p.id}`)}>
                       <td>
                         <a href={`/inventory/${p.id}`} className="hover:underline">
                         <div className="font-semibold flex items-center gap-1.5">
@@ -97,7 +114,7 @@ export default function InventoryClient({ products, byWarehouse, warehouses, mov
                       })}
                       <td className="num tnum font-bold">{qtyFmt(qty)}</td>
                       <td className="num tnum font-bold">{money(p.stockValue)}</td>
-                      <td className="no-print whitespace-nowrap">
+                      <td className="no-print whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <button className="text-xs font-bold text-brand hover:underline" onClick={() => { setTab("mov"); setViewMovFor(p); }}>{t("history")}</button>
                         <button className="text-xs font-bold text-accent hover:underline ml-2" onClick={() => setLabelFor(p)}>{t("labels")}</button>
                       </td>
@@ -122,7 +139,7 @@ export default function InventoryClient({ products, byWarehouse, warehouses, mov
               <button className="text-xs font-bold text-mute hover:text-ink" onClick={() => setViewMovFor(null)}>clear filter ×</button>
             </div>
           )}
-          <div className="overflow-x-auto rounded-lg border border-line bg-card">
+          <div className="overflow-x-auto tblwrap rounded-lg border border-line bg-card">
             <table className="tbl">
               <thead><tr><th>{t("Date")}</th><th>{t("Type")}</th><th>{t("Product")}</th><th>{t("Godown")}</th><th className="num">Change</th><th className="num">Prev → New</th><th>Ref</th><th>By / Reason</th></tr></thead>
               <tbody>
@@ -146,7 +163,7 @@ export default function InventoryClient({ products, byWarehouse, warehouses, mov
 
       <AdjustDialog open={adjOpen} onClose={() => setAdjOpen(false)} products={products} warehouses={warehouses} whQty={whQty} />
       <TransferDialog open={trfOpen} onClose={() => setTrfOpen(false)} products={products} warehouses={warehouses} whQty={whQty} />
-      <NewProductDialog open={newOpen} onClose={() => setNewOpen(false)} warehouses={warehouses} />
+      <NewProductDialog open={newOpen} onClose={() => setNewOpen(false)} warehouses={warehouses} defaultBizType={bizType} />
       <LabelDialog open={!!labelFor} onClose={() => setLabelFor(null)} product={labelFor} />
     </div>
   );
@@ -294,22 +311,26 @@ function Sec({ title, sub, children }) {
   );
 }
 
-function NewProductDialog({ open, onClose, warehouses }) {
+function NewProductDialog({ open, onClose, warehouses, defaultBizType = "fabric" }) {
   const t = useT();
   const router = useRouter();
   const [more, setMore] = useState(false); // collapsed by default
+  const BIZ = BUSINESS_TYPES;
+  const cfg = getBiz(defaultBizType);
   const [f, setF] = useState({
-    name: "", group: "", brand: "", color: "", design: "Plain", unit: "meter",
+    bizType: BIZ[defaultBizType] ? defaultBizType : "fabric",
+    name: "", group: "", brand: "", color: "", design: "Plain", unit: cfg.unit,
     costPrice: "", wholesalePrice: "",
     openingStock: "", openingWarehouse: warehouses[0]?.id || "",
-    sku: "", widthIn: "", productType: "Fabric",
+    sku: "", widthIn: "", productType: cfg.ptype,
     retailPrice: "", vipPrice: "", minPrice: "", mrp: "",
     hsn: "", gstRate: "0", reorderLevel: "", saleDiscountPct: "",
-    description: "", notForSale: false,
+    description: "", notForSale: false, attributes: {},
   });
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const setBool = (k) => (e) => setF({ ...f, [k]: e.target.checked });
+  const setAttr = (k) => (e) => setF({ ...f, attributes: { ...f.attributes, [k]: e.target.value } });
   const valid = f.name.trim() && Number(f.wholesalePrice) > 0 && Number(f.costPrice) >= 0;
 
   async function save() {
@@ -326,6 +347,7 @@ function NewProductDialog({ open, onClose, warehouses }) {
         hsn: f.hsn, gstRate: Number(f.gstRate) || 0, saleDiscountPct: Number(f.saleDiscountPct) || 0,
         reorderLevel: Number(f.reorderLevel) || 0, productType: f.productType,
         description: f.description, notForSale: f.notForSale, group: f.group || undefined,
+        bizType: f.bizType, attributes: f.attributes,
       };
       const res = await fetch("/api/products", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json();
@@ -339,36 +361,65 @@ function NewProductDialog({ open, onClose, warehouses }) {
   return (
     <Modal open={open} onClose={onClose} title={t("Add New Product")} wide>
       <div className="space-y-4">
-        <Sec title={t("Product Information")} sub={t("Enter the basic details used to identify this fabric in your shop.")}>
+        <Sec title={t("Product Information")} sub={t("Works for any trade — fabric is the default. Pick your business type and the labels adapt.")}>
           <div className="space-y-3">
             <div>
+              <L>{t("Business Type")}</L>
+              <select className="inp" value={f.bizType} onChange={(e) => {
+                const bt = e.target.value; const c = BIZ[bt];
+                setF({ ...f, bizType: bt, unit: c.unit, productType: c.ptype, design: c.design ? f.design : "Plain", attributes: {} });
+                // Remember this choice for the whole business (persists across logins; changeable anytime).
+                fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "set_biz_type", bizType: bt }) }).then(() => router.refresh()).catch(() => {});
+              }}>
+                {Object.entries(BIZ).map(([k, v]) => <option key={k} value={k}>{t(v.label)}</option>)}
+              </select>
+              <div className="text-[0.7rem] text-mute mt-1">{t("Choose your business type. It is remembered for next time and you can change it anytime.")}</div>
+            </div>
+            <div>
               <L>{t("Product Name")} <span className="text-danger">*</span></L>
-              <input className="inp" value={f.name} onChange={set("name")} placeholder="e.g. Wash & Wear Navy" autoFocus />
+              <input className="inp" value={f.name} onChange={set("name")} placeholder={BIZ[f.bizType].namePh} autoFocus />
             </div>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <L>{t("Fabric / Group")}</L>
-                <input className="inp" list="fabric-groups" value={f.group} onChange={set("group")} placeholder={t("Select fabric / group")} />
-                <datalist id="fabric-groups">
-                  {["Wash & Wear", "Cotton", "Lawn", "Khaddar", "Karandi", "Boski", "Viscose", "Chiffon", "Velvet", "Latha", "Drill", "Polyester", "Slub"].map((g) => <option key={g} value={g} />)}
+                <L>{t(BIZ[f.bizType].group)}</L>
+                <input className="inp" list="biz-groups" value={f.group} onChange={set("group")} placeholder={BIZ[f.bizType].groupPh} />
+                <datalist id="biz-groups">
+                  {BIZ[f.bizType].groups.map((g) => <option key={g} value={g} />)}
                 </datalist>
               </div>
               <div>
-                <L>{t("Brand / Mill")}</L>
-                <input className="inp" value={f.brand} onChange={set("brand")} placeholder="e.g. Crescent" />
+                <L>{t(BIZ[f.bizType].brand)}</L>
+                <input className="inp" value={f.brand} onChange={set("brand")} placeholder={BIZ[f.bizType].brandPh} />
               </div>
-              <div>
-                <L>{t("Color")}</L>
-                <input className="inp" value={f.color} onChange={set("color")} placeholder="e.g. Navy" />
-              </div>
-              <div>
-                <L>{t("Design")}</L>
-                <select className="inp" value={f.design} onChange={set("design")}>{["Plain", "Self", "Embroidered", "Printed", "Jacquard", "Striped"].map((d) => <option key={d}>{d}</option>)}</select>
-              </div>
+              {BIZ[f.bizType].color && (
+                <div>
+                  <L>{t("Color")}</L>
+                  <input className="inp" value={f.color} onChange={set("color")} placeholder="e.g. Navy" />
+                </div>
+              )}
+              {BIZ[f.bizType].design && (
+                <div>
+                  <L>{t("Design")}</L>
+                  <select className="inp" value={f.design} onChange={set("design")}>{["Plain", "Self", "Embroidered", "Printed", "Jacquard", "Striped"].map((d) => <option key={d}>{d}</option>)}</select>
+                </div>
+              )}
               <div>
                 <L>{t("Selling Unit")} <span className="text-danger">*</span></L>
-                <select className="inp" value={f.unit} onChange={set("unit")}>{["meter", "piece", "set", "kg"].map((u) => <option key={u} value={u}>{u === "meter" ? "Meter" : u}</option>)}</select>
+                <select className="inp" value={f.unit} onChange={set("unit")}>{BIZ[f.bizType].units.map((u) => <option key={u} value={u}>{u.charAt(0).toUpperCase() + u.slice(1)}</option>)}</select>
               </div>
+              {BIZ[f.bizType].extraFields.map((fl) => (
+                <div key={fl.key}>
+                  <L>{t(fl.label)}</L>
+                  {fl.type === "select" ? (
+                    <select className="inp" value={f.attributes[fl.key] || ""} onChange={setAttr(fl.key)}>
+                      <option value="">—</option>
+                      {fl.options.map((o) => <option key={o} value={o}>{t(o)}</option>)}
+                    </select>
+                  ) : (
+                    <input type={fl.type === "number" ? "number" : fl.type === "date" ? "date" : "text"} step={fl.type === "number" ? "any" : undefined} className={`inp ${fl.type === "number" ? "tnum" : ""}`} value={f.attributes[fl.key] || ""} onChange={setAttr(fl.key)} placeholder={fl.ph || ""} />
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </Sec>
@@ -392,7 +443,7 @@ function NewProductDialog({ open, onClose, warehouses }) {
         <Sec title={t("Opening Stock")} sub={t("If this product is already in your shop, enter its current stock.")}>
           <div className="grid sm:grid-cols-2 gap-3">
             <div>
-              <L>{t("Opening Stock (Meter)")}</L>
+              <L>{t("Opening Stock")} ({f.unit})</L>
               <input type="number" min="0" step="0.25" className="inp tnum" value={f.openingStock} onChange={set("openingStock")} placeholder="0" />
             </div>
             <div>
@@ -417,10 +468,12 @@ function NewProductDialog({ open, onClose, warehouses }) {
                     <L>{t("Item Code / SKU")}</L>
                     <input className="inp" value={f.sku} onChange={set("sku")} placeholder={t("Leave empty for automatic code")} />
                   </div>
-                  <div>
-                    <L>{t("Width (inches)")}</L>
-                    <input type="number" className="inp tnum" value={f.widthIn} onChange={set("widthIn")} placeholder="e.g. 58" />
-                  </div>
+                  {BIZ[f.bizType].width && (
+                    <div>
+                      <L>{t("Width (inches)")}</L>
+                      <input type="number" className="inp tnum" value={f.widthIn} onChange={set("widthIn")} placeholder="e.g. 58" />
+                    </div>
+                  )}
                   <div>
                     <L>{t("Product Type")}</L>
                     <select className="inp" value={f.productType} onChange={set("productType")}>{["Fabric", "Stitching", "Accessory", "Service", "General"].map((x) => <option key={x}>{x}</option>)}</select>

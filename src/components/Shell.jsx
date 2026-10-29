@@ -33,7 +33,8 @@ const NAV = [
 ];
 
 const TITLES = [
-  ["/sales/new", "New Sale", "Sales"], ["/sales", "Sales", "Trade"], ["/purchases", "Purchases", "Trade"],
+  ["/sales/new", "New Sale", "Sales"], ["/sales", "Sales", "Trade"],
+  ["/purchases", "Purchases", "Trade"],
   ["/ograi", "Ograi / Collections", "Trade"], ["/customers", "Customers", "Trade"], ["/suppliers", "Suppliers", "Trade"],
   ["/inventory", "Inventory", "Stock"], ["/expenses", "Expenses", "Money"], ["/cashbank", "Cash & Bank", "Money"],
   ["/cheques", "Cheques", "Money"], ["/reports", "Reports", "Money"], ["/settings", "Settings & Staff", "Admin"],
@@ -79,6 +80,8 @@ function GlobalSearch({ businessName }) {
   }, []);
 
   useEffect(() => {
+    // Clearing results when the query empties is an immediate UI sync tied to external input.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!q.trim()) { setRes(null); return; }
     const tm = setTimeout(async () => {
       try {
@@ -136,6 +139,7 @@ export default function Shell({ user, business, alerts, lang, children, demoUsag
   const router = useRouter();
   const dangerCount = alerts.filter((a) => a.level === "danger").length;
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- read persisted sidebar state from localStorage after mount to avoid a server/client hydration mismatch
   useEffect(() => { setCollapsed(localStorage.getItem("faberp_sb") === "1"); }, []);
   useEffect(() => { localStorage.setItem("faberp_sb", collapsed ? "1" : "0"); }, [collapsed]);
 
@@ -192,7 +196,7 @@ export default function Shell({ user, business, alerts, lang, children, demoUsag
   );
 
   return (
-    <div className="h-screen flex overflow-hidden">
+    <div className="app-shell h-screen flex overflow-hidden">
       <div className="hidden lg:block no-print">{sidebar}</div>
       {mobileNav && (
         <div className="fixed inset-0 z-50 lg:hidden no-print">
@@ -271,7 +275,7 @@ export default function Shell({ user, business, alerts, lang, children, demoUsag
             <span className="ms-auto text-white/70 font-semibold">{t("Entry limit reached? Existing data stays viewable.")}</span>
           </div>
         )}
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6" onClick={() => notifOpen && setNotifOpen(false)}>{children}</main>
+        <main className="app-main flex-1 overflow-y-auto p-4 lg:p-6" onClick={() => notifOpen && setNotifOpen(false)}>{children}</main>
       </div>
       <Toaster />
     </div>

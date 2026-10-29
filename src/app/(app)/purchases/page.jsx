@@ -43,11 +43,24 @@ export default async function PurchasesPage({ searchParams }) {
         <Link href="/purchases/new" className="rounded-md bg-brand hover:bg-brand-deep text-white text-sm font-bold px-4 py-2 no-print">+ {t("New Purchase")}</Link>
       </div>
 
-      <form className="flex flex-wrap gap-2 items-end no-print" method="GET">
-        <input name="q" defaultValue={sp.q || ""} className="inp !w-40" placeholder="PUR no…" />
-        <input type="date" name="from" defaultValue={sp.from || ""} className="inp" />
-        <input type="date" name="to" defaultValue={sp.to || ""} className="inp" />
-        <button className="rounded-md bg-brand text-white text-sm font-semibold px-4 py-2">Filter</button>
+      {/* balanced toolbar: calm fixed widths, date-range grouped together, generous air between sections */}
+      <form className="flex flex-wrap items-end gap-x-6 gap-y-3 rounded-xl border border-line bg-card px-4 py-3 no-print" method="GET">
+        <div className="w-64 shrink-0">
+          <label className="text-[0.65rem] font-bold uppercase text-mute">PUR #</label>
+          <input name="q" defaultValue={sp.q || ""} className="inp mt-0.5" placeholder="PUR no…" />
+        </div>
+        <div className="flex items-end gap-x-4 shrink-0">
+          <div className="w-44">
+            <label className="text-[0.65rem] font-bold uppercase text-mute">{t("From")}</label>
+            <input type="date" name="from" defaultValue={sp.from || ""} className="inp mt-0.5" />
+          </div>
+          <div className="w-44">
+            <label className="text-[0.65rem] font-bold uppercase text-mute">{t("To")}</label>
+            <input type="date" name="to" defaultValue={sp.to || ""} className="inp mt-0.5" />
+          </div>
+        </div>
+        <button className="shrink-0 rounded-md bg-brand hover:bg-brand-deep text-white text-sm font-semibold px-5 py-2">{t("Filter")}</button>
+        {(sp.q || sp.from || sp.to) && <Link href="/purchases" className="shrink-0 text-xs font-bold text-mute hover:text-brand underline pb-2.5">{t("Clear")} ✕</Link>}
       </form>
 
       <div className="overflow-x-auto rounded-lg border border-line bg-card">

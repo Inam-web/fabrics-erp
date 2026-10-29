@@ -29,7 +29,7 @@ export async function createSession(userId, grantId = null) {
   jar.set(COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: false,
+    secure: process.env.NODE_ENV === "production", // Secure over HTTPS in prod; kept off for local http dev
     path: "/",
     expires: expiresAt,
   });
@@ -106,10 +106,16 @@ export async function login(email, password) {
   return u;
 }
 
-// naive request-rate guard (in-memory) for auth endpoint
+// request-rate guard (in-memory) for auth endpoints; sweeps stale keys periodically
+// so the map can't grow without bound under abuse.
 const hits = new Map();
+let lastSweep = Date.now();
 export function rateLimit(key, max = 10, windowMs = 60000) {
   const now = Date.now();
+  if (now - lastSweep > 5 * 60 * 1000) {
+    for (const [k, rec] of hits) if (now - rec.start > 10 * 60 * 1000) hits.delete(k);
+    lastSweep = now;
+  }
   const rec = hits.get(key) || { count: 0, start: now };
   if (now - rec.start > windowMs) {
     rec.count = 0;

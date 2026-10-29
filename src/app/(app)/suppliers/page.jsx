@@ -4,6 +4,7 @@ import { suppliers } from "@/db/schema";
 import { getUser } from "@/server/auth.mjs";
 import { redirect } from "next/navigation";
 import { SuppliersTable, NewSupplierButton } from "./_client";
+import { ImportCsvButton } from "@/components/ImportDialog";
 import { getLang, makeT } from "@/lib/i18n";
 import { cookies } from "next/headers";
 
@@ -22,7 +23,10 @@ export default async function SuppliersPage() {
           <h1 className="font-display text-xl font-bold">{t("Suppliers")}</h1>
           <div className="text-sm text-mute">Purchase bills credit the supplier khata; payments and returns reduce it.</div>
         </div>
-        <NewSupplierButton />
+        <div className="flex gap-2">
+          <ImportCsvButton entity="suppliers" />
+          <NewSupplierButton />
+        </div>
       </div>
       <SuppliersTable suppliers={rows} />
     </div>

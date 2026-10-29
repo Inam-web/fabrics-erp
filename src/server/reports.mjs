@@ -15,11 +15,22 @@ async function rows(q) {
   return (await db.execute(sql.raw(q))).rows;
 }
 
+// Hardening for the raw-SQL report builder below: a business id must be a non-negative
+// integer and a date must be a strict YYYY-MM-DD. Invalid values are coerced/dropped here
+// (the single choke point) instead of being concatenated into the query, closing the SQL
+// injection surface reachable through the URL period params (?week= / ?month= / ?year=).
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const safeBiz = (v) => (Number.isInteger(Number(v)) && Number(v) >= 0 ? Number(v) : 0);
+const safeDate = (v) => (typeof v === "string" && DATE_RE.test(v) ? v : null);
+
 // Merged series of every metric grouped by day/week/month/year.
 export async function seriesFor(b, grain, from, to) {
+  b = safeBiz(b);
+  grain = G[grain] ? grain : "day";
   const g = G[grain];
   const gOf = (col) => g.replace(/\bd\b/g, col);
-  const rg = (col) => (from ? `AND ${col} BETWEEN '${from}' AND '${to}'` : "");
+  const fromS = safeDate(from), toS = safeDate(to);
+  const rg = (col) => (fromS && toS ? `AND ${col} BETWEEN '${fromS}' AND '${toS}'` : "");
   const D = "date::date"; // document tables' date column
   const [sales, purs, colls, sups, exps, rets, gps, voids, newc, actc] = await Promise.all([
     rows(`WITH x AS (SELECT ${gOf(D)} k, total, paid FROM sales WHERE business_id=${b} AND status='final' ${rg(D)})
@@ -62,6 +73,9 @@ export async function seriesFor(b, grain, from, to) {
 
 // Full detail for one range: KPIs + sub-period breakdown + tops + methods + categories + ograi.
 export async function rangeReport(b, from, to, subgrain) {
+  b = safeBiz(b);
+  from = safeDate(from) || "1970-01-01";
+  to = safeDate(to) || "2999-12-31";
   const s = await seriesFor(b, "day", from, to).then((xs) => xs.reduce((a, r) => {
     a.invoices += r.invoices; a.sales = r2(a.sales + r.sales); a.cashSales = r2(a.cashSales + r.cashSales);
     a.purchases = r2(a.purchases + r.purchases); a.collections = r2(a.collections + r.collections);

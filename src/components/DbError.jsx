@@ -7,7 +7,7 @@ export default function DbError({ reason }) {
     : text.includes("ECONNREFUSED")
     ? { title: "PostgreSQL is not running", body: <>Start PostgreSQL: Docker → <code>docker start faberp-pg</code> · Windows → Services → start <i>postgresql-x64</i> · Linux → <code>sudo service postgresql start</code>.</> }
     : text.includes("does not exist")
-    ? { title: "Database “app_db” not found", body: <>Create it once: <code>psql -U postgres -c "CREATE DATABASE app_db;"</code>, then run <code>npx drizzle-kit push</code> and <code>npx tsx scripts/seed.mts</code>.</> }
+    ? { title: "Database “app_db” not found", body: <>Create it once: <code>psql -U postgres -c &quot;CREATE DATABASE app_db;&quot;</code>, then run <code>npx drizzle-kit push</code> and <code>npx tsx scripts/seed.mts</code>.</> }
     : { title: "Database connection problem", body: <>Check that PostgreSQL is running and that <code>DATABASE_URL</code> in <code>.env</code> is correct.</> };
 
   return (
@@ -20,8 +20,8 @@ export default function DbError({ reason }) {
             <circle cx="17" cy="24.5" r="1.8" fill="#f3f1e9" />
           </svg>
           <div>
-            <h1 className="text-lg font-bold" style={{ fontFamily: "'Space Grotesk', Manrope, sans-serif" }}>Can't reach the database</h1>
-            <div className="text-sm text-[#6d7264]">The app is fine — it just can't talk to PostgreSQL yet.</div>
+            <h1 className="text-lg font-bold" style={{ fontFamily: "'Space Grotesk', Manrope, sans-serif" }}>Can&apos;t reach the database</h1>
+            <div className="text-sm text-[#6d7264]">The app is fine — it just can&apos;t talk to PostgreSQL yet.</div>
           </div>
         </div>
 

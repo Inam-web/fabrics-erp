@@ -149,8 +149,8 @@ function Lists({ d }) {
   );
 }
 
-export default async function PeriodsSection({ kind, user, sp, t }) {
-  if (!t) t = makeT("en");
+export default async function PeriodsSection({ kind, user, sp, t: tProp }) {
+  const t = tProp || makeT("en");
   const param = paramOf[kind];
   const label = labelOf[kind];
   const today = todayStr();

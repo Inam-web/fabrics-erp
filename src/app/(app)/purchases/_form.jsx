@@ -6,7 +6,7 @@ import { money, qtyFmt } from "@/lib/format";
 
 const r2 = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
 
-export default function PurchaseForm({ suppliers, products, warehouses, accounts, defaultWarehouseId }) {
+export default function PurchaseForm({ suppliers, products, warehouses, accounts, defaultWarehouseId, stockRows = [] }) {
   const router = useRouter();
   const [supplierId, setSupplierId] = useState("");
   const [warehouseId, setWarehouseId] = useState(String(defaultWarehouseId));
@@ -22,6 +22,12 @@ export default function PurchaseForm({ suppliers, products, warehouses, accounts
   const [notes, setNotes] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const stockOnHand = useMemo(() => {
+    const m = {};
+    for (const r of stockRows) m[r.productId] = (m[r.productId] || 0) + Number(r.qty);
+    return m;
+  }, [stockRows]);
 
   const matches = useMemo(() => {
     if (!q.trim()) return [];
@@ -85,9 +91,14 @@ export default function PurchaseForm({ suppliers, products, warehouses, accounts
           {matches.length > 0 && (
             <div className="absolute z-30 mt-1 left-3 right-3 rounded-lg border border-line bg-card shadow-xl max-h-64 overflow-y-auto">
               {matches.map((p) => (
-                <button key={p.id} onMouseDown={() => add(p)} className="w-full text-left px-3 py-2 hover:bg-brand-soft text-sm border-b border-line-soft flex justify-between">
+                <button key={p.id} onMouseDown={() => add(p)} className="w-full text-left px-3 py-2 hover:bg-brand-soft text-sm border-b border-line-soft flex justify-between items-center gap-3">
                   <span className="font-semibold">{p.name} <span className="text-mute font-normal">{p.color} · {p.sku}</span></span>
-                  <span className="tnum text-mute">cost {money(p.costPrice)}</span>
+                  <span className="shrink-0 flex items-center gap-2">
+                    <span className={`tnum inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-extrabold ${stockOnHand[p.id] > 0 ? "bg-ok-soft text-ok ring-1 ring-ok/30" : "bg-warn-soft text-warn ring-1 ring-warn/30"}`}>
+                      <span className={`h-2 w-2 rounded-full ${stockOnHand[p.id] > 0 ? "bg-ok" : "bg-warn"}`} />{qtyFmt(stockOnHand[p.id] || 0)} in stock
+                    </span>
+                    <span className="tnum text-mute text-sm">cost {money(p.costPrice)}</span>
+                  </span>
                 </button>
               ))}
             </div>

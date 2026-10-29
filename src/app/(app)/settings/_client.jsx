@@ -1,10 +1,11 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Modal, Field, Badge, Card, ErrorNote, toast } from "@/components/ui";
+import { Button, Modal, Field, Badge, Card, ErrorNote, toast, AppIcon } from "@/components/ui";
 import { money, dtFmt, dateFmt } from "@/lib/format";
 import { useT } from "@/lib/useT";
 import { BRAND, brandMark } from "@/lib/brand.mjs";
+import { BUSINESS_TYPES } from "@/lib/businessTypes";
 
 const ROLES = [["owner", "Owner / Super Admin"], ["manager", "Manager"], ["accountant", "Accountant"], ["cashier", "Cashier"], ["salesman", "Salesman"], ["warehouse", "Warehouse Staff"]];
 
@@ -75,7 +76,7 @@ export default function SettingsClient({ business, users, salesmen, routes, audi
 
 function BusinessForm({ business, canManage }) {
   const t = useT();
-  const [f, setF] = useState({ name: business.name, phone: business.phone || "", address: business.address || "", taxPct: business.taxPct || "0", invoiceFooter: business.invoiceFooter || "", logo: business.logo || "" });
+  const [f, setF] = useState({ name: business.name, phone: business.phone || "", address: business.address || "", taxPct: business.taxPct || "0", invoiceFooter: business.invoiceFooter || "", logo: business.logo || "", bizType: business.bizType || "" });
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
   const router = useRouter();
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -101,6 +102,13 @@ function BusinessForm({ business, canManage }) {
   return (
     <div className="max-w-xl rounded-lg border border-line bg-card p-4 space-y-3">
       <Field label="Business name"><input className="inp" value={f.name} onChange={set("name")} disabled={!canManage} /></Field>
+      <Field label={t("Business Type")}>
+        <select className="inp" value={f.bizType} onChange={set("bizType")} disabled={!canManage}>
+          <option value="">— {t("Select business type")} —</option>
+          {Object.entries(BUSINESS_TYPES).map(([k, v]) => <option key={k} value={k}>{t(v.label)}</option>)}
+        </select>
+        <div className="text-[0.7rem] text-mute mt-1">{t("Choose your business type. It is remembered for next time and you can change it anytime.")}</div>
+      </Field>
       <div className="flex items-center gap-3">
         <div className="h-14 w-24 rounded-md border border-dashed border-line bg-white flex items-center justify-center overflow-hidden">
           {f.logo ? <img src={f.logo} alt="logo" className="max-h-full max-w-full object-contain" /> : <span className="text-[0.62rem] text-mute">no logo</span>}
@@ -129,8 +137,8 @@ function BusinessForm({ business, canManage }) {
       </div>
       <div className="mt-4 pt-4 border-t border-line">
         <h3 className="font-display font-bold text-sm mb-1">Backup</h3>
-        <p className="text-xs text-mute mb-2">Download every table of this business as a single JSON file (customers, khata, invoices, stock, payments, journal, audit trail…).</p>
-        <a href="/api/backup" className="inline-flex rounded-md bg-brand hover:bg-brand-deep text-white text-sm font-semibold px-4 py-2">⬇ Download full backup</a>
+        <p className="text-xs text-mute mb-2">Download every table of this business as a single JSON file (customers, khata, invoices, stock, payments, journal, audit trail…).<br />{t("Set BACKUP_DIR on the server for nightly automatic backups.")}</p>
+        <a href="/api/backup" className="inline-flex items-center gap-1.5 rounded-md bg-brand hover:bg-brand-deep text-white text-sm font-semibold px-4 py-2"><AppIcon name="down" /> Download full backup</a>
       </div>
     </div>
   );
@@ -160,6 +168,22 @@ function UsersPanel({ users, canManage, router }) {
     setBusy(false);
     router.refresh();
   }
+  // ── edit an existing account (name / email / phone / role) — server enforces the guardrails
+  const [edit, setEdit] = useState(null);
+  const [ef, setEf] = useState({ name: "", email: "", phone: "", role: "salesman" });
+  const [err2, setErr2] = useState(""); const [busy2, setBusy2] = useState(false);
+  const openEdit = (u) => { setErr2(""); setEdit(u); setEf({ name: u.name, email: u.email, phone: u.phone || "", role: u.role }); };
+  async function saveEdit() {
+    setBusy2(true); setErr2("");
+    try {
+      const res = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "update_user", id: edit.id, ...ef }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast(`User ${ef.name} updated`);
+      setEdit(null); router.refresh();
+    } catch (e) { setErr2(e.message); }
+    setBusy2(false);
+  }
   return (
     <div className="space-y-3">
       {canManage && <Button onClick={() => setOpen(true)}>+ Add User</Button>}
@@ -174,7 +198,7 @@ function UsersPanel({ users, canManage, router }) {
                 <td className="text-xs tnum">{u.phone || "—"}</td>
                 <td><Badge tone={u.role === "owner" ? "accent" : u.role === "manager" ? "brand" : "mute"}>{u.role}</Badge></td>
                 <td>{u.active ? <Badge tone="ok">active</Badge> : <Badge tone="danger">disabled</Badge>}</td>
-                {canManage && <td><button onClick={() => toggle(u.id)} className="text-xs font-bold text-brand hover:underline">{u.active ? "Disable" : "Enable"}</button></td>}
+                {canManage && <td className="whitespace-nowrap"><button onClick={() => openEdit(u)} className="text-xs font-bold text-brand hover:underline me-3">Edit</button><button onClick={() => toggle(u.id)} className="text-xs font-bold text-brand hover:underline">{u.active ? "Disable" : "Enable"}</button></td>}
               </tr>
             ))}
           </tbody>
@@ -195,6 +219,19 @@ function UsersPanel({ users, canManage, router }) {
           <Field label="Phone"><input className="inp" value={f.phone} onChange={set("phone")} /></Field>
           <ErrorNote error={err} />
           <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={save} disabled={busy || !f.name || !f.email || !f.password}>{busy ? "Adding…" : "Add user"}</Button></div>
+        </div>
+      </Modal>
+      <Modal open={!!edit} onClose={() => setEdit(null)} title="Edit user">
+        <div className="space-y-3">
+          <Field label="Full name" required><input className="inp" value={ef.name} onChange={(e) => setEf({ ...ef, name: e.target.value })} /></Field>
+          <Field label="Email" required><input className="inp" value={ef.email} onChange={(e) => setEf({ ...ef, email: e.target.value })} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Phone"><input className="inp" value={ef.phone} onChange={(e) => setEf({ ...ef, phone: e.target.value })} /></Field>
+            <Field label="Role"><select className="inp" value={ef.role} onChange={(e) => setEf({ ...ef, role: e.target.value })}>{ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
+          </div>
+          <div className="text-[0.7rem] text-mute">You cannot change your own role; only the owner can touch owner accounts.</div>
+          <ErrorNote error={err2} />
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setEdit(null)}>Cancel</Button><Button onClick={saveEdit} disabled={busy2 || !ef.name || !ef.email}>{busy2 ? "Saving…" : "Save changes"}</Button></div>
         </div>
       </Modal>
     </div>

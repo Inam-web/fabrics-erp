@@ -2,27 +2,38 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Modal, Field, Button, Badge, ErrorNote, toast } from "@/components/ui";
+import { Modal, Field, Button, Badge, ErrorNote, toast, SortHeader } from "@/components/ui";
 import { money } from "@/lib/format";
 import { useT } from "@/lib/useT";
 
 const CATS = ["all", "vip", "wholesale", "regular", "cash", "new"];
+const SORTERS = {
+  code: (c) => c.code, name: (c) => c.name.toLowerCase(), area: (c) => (c.area || "").toLowerCase(),
+  category: (c) => c.category, weeklyOgrai: (c) => Number(c.weeklyOgrai), creditLimit: (c) => Number(c.creditLimit), balance: (c) => Number(c.balance),
+};
 
 export function CustomersTable({ customers }) {
   const t = useT();
+  const router = useRouter();
   const [list, setList] = useState("business"); // business accounts vs retail/counter buyers
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("all");
   const [onlyDue, setOnlyDue] = useState(false);
+  const [sort, setSort] = useState({ k: "name", dir: "asc" });
   const isCounter = (c) => c.paymentTerms === "cash" || c.code === "WALKIN";
   const scoped = customers.filter((c) => (list === "business" ? !isCounter(c) : isCounter(c)));
 
-  const rows = useMemo(() => scoped.filter((c) => {
+  const filtered = useMemo(() => scoped.filter((c) => {
     if (cat !== "all" && c.category !== cat) return false;
     if (onlyDue && Number(c.balance) <= 0) return false;
     if (q && !`${c.name} ${c.ownerName || ""} ${c.phone || ""} ${c.code} ${c.area || ""}`.toLowerCase().includes(q.toLowerCase())) return false;
     return true;
   }), [scoped, q, cat, onlyDue]);
+
+  const rows = useMemo(() => {
+    const f = SORTERS[sort.k] || SORTERS.name, mul = sort.dir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => { const x = f(a), y = f(b); return x < y ? -mul : x > y ? mul : 0; });
+  }, [filtered, sort]);
 
   const businessCount = customers.filter((c) => !isCounter(c)).length;
   const retailCount = customers.length - businessCount;
@@ -58,17 +69,26 @@ export function CustomersTable({ customers }) {
         </label>
         <div className="ml-auto text-xs text-mute tnum">{rows.length} customers · outstanding {money(totalBal)}</div>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-line bg-card">
+      <div className="overflow-x-auto tblwrap rounded-lg border border-line bg-card">
         <table className="tbl">
           <thead>
-            <tr><th>{t("Code")}</th><th>{t("Customer")}</th><th>{t("Area")} · {t("Phone")}</th><th>{t("Category")}</th><th>{t("Terms")}</th><th className="num">{t("Ograi / Collections")}</th><th className="num">{t("Credit Limit")}</th><th className="num">{t("Balance")}</th></tr>
+            <tr>
+              <SortHeader label={t("Code")} k="code" sort={sort.k} dir={sort.dir} setSort={setSort} />
+              <SortHeader label={t("Customer")} k="name" sort={sort.k} dir={sort.dir} setSort={setSort} />
+              <SortHeader label={`${t("Area")} · ${t("Phone")}`} k="area" sort={sort.k} dir={sort.dir} setSort={setSort} />
+              <SortHeader label={t("Category")} k="category" sort={sort.k} dir={sort.dir} setSort={setSort} />
+              <th>{t("Terms")}</th>
+              <SortHeader label={t("Ograi / Collections")} k="weeklyOgrai" sort={sort.k} dir={sort.dir} setSort={setSort} num />
+              <SortHeader label={t("Credit Limit")} k="creditLimit" sort={sort.k} dir={sort.dir} setSort={setSort} num />
+              <SortHeader label={t("Balance")} k="balance" sort={sort.k} dir={sort.dir} setSort={setSort} num />
+            </tr>
           </thead>
           <tbody>
             {rows.map((c) => {
               const bal = Number(c.balance);
               const over = Number(c.creditLimit) > 0 && bal > Number(c.creditLimit);
               return (
-                <tr key={c.id}>
+                <tr key={c.id} className="rowlink" onClick={() => router.push(`/customers/${c.id}`)}>
                   <td className="text-mute tnum">{c.code}</td>
                   <td>
                     <Link href={`/customers/${c.id}`} className="font-semibold hover:text-brand">{c.name}</Link>

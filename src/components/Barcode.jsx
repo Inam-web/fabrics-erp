@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Modal, Button, Field } from "./ui";
+import { Modal, Button, Field, AppIcon } from "./ui";
 import { money } from "@/lib/format";
 import { BRAND } from "@/lib/brand.mjs";
 
@@ -51,7 +51,7 @@ export function LabelDialog({ open, onClose, product }) {
         <label className="flex items-center gap-1.5 text-sm font-semibold pb-2">
           <input type="checkbox" checked={showPrice} onChange={(e) => setShowPrice(e.target.checked)} /> Show price
         </label>
-        <div className="ml-auto"><Button onClick={() => window.print()}>🖨 Print label sheet</Button></div>
+        <div className="ml-auto"><Button onClick={() => window.print()}><AppIcon name="print" /> Print label sheet</Button></div>
       </div>
       <div className="label-sheet grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
         {Array.from({ length: count }).map((_, i) => (

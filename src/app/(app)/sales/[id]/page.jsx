@@ -7,7 +7,7 @@ import { canOverride } from "@/server/util.mjs";
 import { getLang, makeT } from "@/lib/i18n";
 import { cookies } from "next/headers";
 import { redirect, notFound } from "next/navigation";
-import { money, money2, qtyFmt, dateFmt } from "@/lib/format";
+import { money, money2, qtyFmt, dateFmt, inWords } from "@/lib/format";
 import { Badge } from "@/components/ui";
 import { InvoiceActions } from "./_client";
 import { BRAND, brandMark } from "@/lib/brand.mjs";
@@ -34,7 +34,7 @@ export default async function InvoicePage({ params }) {
 
   const items = await db.select({
     productId: saleItems.productId, qty: saleItems.qty, rate: saleItems.rate, discount: saleItems.discount, total: saleItems.total,
-    name: products.name, color: products.color, sku: products.sku, unit: products.unit, design: products.design, source: products.source,
+    name: products.name, color: products.color, sku: products.sku, unit: products.unit, design: products.design, source: products.source, gstRate: products.gstRate,
   }).from(saleItems).innerJoin(products, eq(products.id, saleItems.productId)).where(eq(saleItems.saleId, saleId));
   const pays = await db.select({ payment: payments }).from(paymentAllocations)
     .innerJoin(payments, eq(payments.id, paymentAllocations.paymentId))
@@ -45,12 +45,22 @@ export default async function InvoicePage({ params }) {
   const gst = Number(sale.tax);
   const mono = business.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
+  const invoiceData = {
+    business: { name: business.name, address: business.address, phone: business.phone, logo: business.logo || null },
+    invoiceNo: sale.invoiceNo, date: sale.date, saleKind: sale.saleKind, gstMode: sale.gstMode,
+    customer: { name: customer.name, contactPerson: customer.ownerName, address: customer.address, area: customer.area, city: customer.city, phone: customer.phone },
+    warehouse: row.warehouse, salesman: row.salesman, acBalance: Number(customer.balance),
+    items: items.map((it) => ({ desc: `${it.name}${it.color ? " " + it.color : ""}`, sub: [it.design, it.sku].filter(Boolean).join(" · "), qty: Number(it.qty), unit: it.unit, rate: Number(it.rate), total: Number(it.total) })),
+    subtotal: Number(sale.subtotal), discount: Number(sale.discount), tax: Number(sale.tax), paid: Number(sale.paid), balance: Number(sale.balance), total: Number(sale.total),
+    footer: business.invoiceFooter,
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-4">
       <div className="flex items-center justify-between no-print">
         <Link href="/sales" className="text-xs font-bold text-mute hover:text-brand">← {t("All invoices")}</Link>
         <InvoiceActions saleId={saleId} customerId={sale.customerId} canOverride={canOverride(user.role)} items={items}
-          sale={{ ...sale, customerName: customer.name }} customerPhone={customer.whatsapp || customer.phone} businessName={business.name} />
+          sale={{ ...sale, customerName: customer.name }} customerPhone={customer.whatsapp || customer.phone} businessName={business.name} invoiceData={invoiceData} />
       </div>
 
       <div className="print-area relative overflow-hidden rounded-xl border border-line bg-white shadow-(--shadow-card)">
@@ -65,29 +75,29 @@ export default async function InvoicePage({ params }) {
         )}
 
         {/* ── letterhead band ── */}
-        <div className="relative bg-night text-white px-8 py-6 flex flex-wrap items-start justify-between gap-6">
-          <div className="flex items-center gap-4 min-w-0">
+        <div className="inv-head relative bg-white text-ink border-b-2 border-brand/60 px-8 py-7 flex flex-wrap items-center justify-between gap-6">
+          <div className="flex items-center gap-5 min-w-0">
             {business.logo
-              ? <img src={business.logo} alt="logo" className="h-14 w-auto max-w-[120px] object-contain rounded-lg bg-white p-1" />
-              : <img src={BRAND.mark} alt="" className="h-14 w-14 rounded-xl shrink-0 shadow-md" />}
+              ? <img src={business.logo} alt="logo" className="h-24 w-auto max-w-[190px] object-contain shrink-0" />
+              : <img src={BRAND.mark} alt="" className="h-24 w-24 shrink-0" />}
             <div className="min-w-0">
-              <div className="font-display text-[1.55rem] leading-tight font-bold">{business.name}</div>
-              <div className="text-[0.78rem] text-white/65 mt-1">{business.address}</div>
-              <div className="text-[0.78rem] text-white/65 tnum">Contact : {business.phone}</div>
+              <div className="font-display text-[2rem] leading-[1.15] font-extrabold tracking-tight break-words">{business.name}</div>
+              {business.address && <div className="text-[0.8rem] text-mute mt-1.5 max-w-xs leading-snug">{business.address}</div>}
+              <div className="text-[0.8rem] text-mute tnum mt-0.5">Contact : {business.phone}</div>
             </div>
           </div>
           <div className="text-right shrink-0">
-            <div className="text-[0.62rem] uppercase tracking-[0.2em] text-white/50">(Original Copy)</div>
-            <div className="mt-0.5">
-              <span className="text-[0.8rem] uppercase tracking-[0.25em] text-[#e8c98a] font-extrabold">{sale.saleKind === "retail" ? "Retail " : ""}Invoice</span>
-              <span className="font-display text-[1.6rem] font-bold tnum text-white ms-2">#{sale.invoiceNo.replace(/^INV-\d+-/, "")}</span>
+            <div className="text-[0.62rem] uppercase tracking-[0.2em] text-mute">(Original Copy)</div>
+            <div className="mt-1">
+              <span className="text-[0.82rem] uppercase tracking-[0.28em] text-brand-deep font-extrabold">{sale.saleKind === "retail" ? "Retail " : ""}Invoice</span>
+              <span className="font-display text-[1.7rem] font-bold tnum text-ink ms-2">#{sale.invoiceNo.replace(/^INV-\d+-/, "")}</span>
             </div>
-            <div className="text-[0.8rem] text-white/70 tnum mt-1">{dateFmt(sale.date)}</div>
+            <div className="text-[0.8rem] text-mute tnum mt-1">{dateFmt(sale.date)}</div>
           </div>
         </div>
 
         {/* ── info panels ── */}
-        <div className="relative grid md:grid-cols-2 gap-5 px-8 py-6">
+        <div className="inv-panels relative grid md:grid-cols-2 gap-5 px-8 py-6">
           <div className="rounded-lg border border-line overflow-hidden">
             <div className="bg-brand-soft text-brand-deep text-[0.7rem] font-extrabold uppercase tracking-[0.12em] px-4 py-2">Bill To</div>
             <div className="px-4 py-3">
@@ -98,7 +108,7 @@ export default async function InvoicePage({ params }) {
             </div>
           </div>
           <div className="rounded-lg border border-line overflow-hidden">
-            <div className="bg-black/5 text-ink text-[0.7rem] font-extrabold uppercase tracking-[0.12em] px-4 py-2">Invoice Details</div>
+            <div className="bg-[#f1efe6] text-ink text-[0.7rem] font-extrabold uppercase tracking-[0.12em] px-4 py-2">Invoice Details</div>
             <div className="px-4 py-3 text-[0.8rem] space-y-1.5">
               <div className="flex justify-between gap-3"><span className="text-mute">Due Date</span><span className="font-semibold tnum">{dateFmt(sale.date)}</span></div>
               <div className="flex justify-between gap-3"><span className="text-mute">A/c Balance</span><span className="font-semibold tnum">{money(customer.balance)} <span className="text-mute font-normal">Dr</span></span></div>
@@ -143,7 +153,7 @@ export default async function InvoicePage({ params }) {
               ))}
             </tbody>
             <tfoot>
-              <tr className="bg-night text-white">
+              <tr className="bg-brand-deep text-white">
                 <td colSpan={2} className="px-4 py-2.5 font-bold text-[0.8rem]">Total Qty : {qtyFmt(totalQty)}</td>
                 <td colSpan={3} className="px-3 py-2.5 text-right font-extrabold tracking-[0.15em] uppercase text-[0.72rem]">Total</td>
                 <td className="px-4 py-2.5 text-right tnum font-bold text-[#e8c98a]">{money(sale.total)}</td>
@@ -153,7 +163,7 @@ export default async function InvoicePage({ params }) {
         </div>
 
         {/* ── terms + totals ── */}
-        <div className="relative grid md:grid-cols-[1fr_330px] gap-8 px-8 py-7">
+        <div className="inv-foot relative grid md:grid-cols-[1fr_330px] gap-8 px-8 py-7">
           <div>
             <div className={Number(sale.balance) > 0
               ? "inline-block -rotate-3 rounded-md border-2 border-warn px-3.5 py-1 text-warn font-extrabold tracking-[0.18em] text-[0.72rem] uppercase"
@@ -186,6 +196,7 @@ export default async function InvoicePage({ params }) {
               <span className="font-extrabold tracking-[0.12em] uppercase text-[0.74rem]">Total Amount</span>
               <span className="tnum font-bold text-[1.1rem]">{money(sale.total)}</span>
             </div>
+            <div className="text-[0.72rem] text-mute pt-1.5 leading-snug"><span className="font-bold uppercase tracking-wide text-[0.62rem]">{t("In words")}: </span>{inWords(sale.total)}</div>
           </div>
         </div>
 

@@ -42,9 +42,15 @@ export default async function ExpensesPage({ searchParams }) {
         </div>
         <div className="flex gap-2 items-end no-print">
           <form method="GET" className="flex gap-2 items-end">
-            <input type="date" name="from" defaultValue={from} className="inp" />
-            <input type="date" name="to" defaultValue={to} className="inp" />
-            <button className="rounded-md bg-brand text-white text-sm font-semibold px-4 py-2">Filter</button>
+            <div>
+              <label className="text-[0.65rem] font-bold uppercase text-mute">{t("From")}</label>
+              <input type="date" name="from" defaultValue={from} className="inp !w-40 mt-0.5" />
+            </div>
+            <div>
+              <label className="text-[0.65rem] font-bold uppercase text-mute">{t("To")}</label>
+              <input type="date" name="to" defaultValue={to} className="inp !w-40 mt-0.5" />
+            </div>
+            <button className="rounded-md bg-brand text-white text-sm font-semibold px-4 py-2">{t("Filter")}</button>
           </form>
           <Link href="/api/export?type=expenses" className="rounded-md border border-line bg-white px-3.5 py-2 text-sm font-semibold hover:border-brand">{t("Export CSV")}</Link>
         </div>

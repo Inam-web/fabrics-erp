@@ -2,11 +2,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Button, Modal, Field, ErrorNote, toast } from "@/components/ui";
-import { qtyFmt } from "@/lib/format";
+import { Button, Modal, Field, ErrorNote, toast, AppIcon } from "@/components/ui";
+import { qtyFmt, dateFmt, money, waPhone } from "@/lib/format";
+import { buildInvoicePdfBlob } from "@/lib/invoicePdf";
 import { useT } from "@/lib/useT";
 
-export function InvoiceActions({ saleId, customerId, items, canOverride, sale, customerPhone, businessName }) {
+export function InvoiceActions({ saleId, customerId, items, canOverride, sale, customerPhone, businessName, invoiceData }) {
   const t = useT();
   const [editOpen, setEditOpen] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
@@ -16,6 +17,7 @@ export function InvoiceActions({ saleId, customerId, items, canOverride, sale, c
   const [fmt, setFmt] = useState("a4");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [waBusy, setWaBusy] = useState(false);
   const router = useRouter();
 
   function doPrint() {
@@ -26,18 +28,41 @@ export function InvoiceActions({ saleId, customerId, items, canOverride, sale, c
     window.print();
   }
 
-  const waHref = useMemo(() => {
-    if (!sale) return "#";
-    const lines = [
+  const waText = useMemo(() => {
+    if (!sale) return "";
+    return [
       `Assalam-o-Alaikum${sale.customerName ? ` ${sale.customerName}` : ""},`,
-      `Invoice ${sale.invoiceNo} (${sale.date})`,
-      `Items: ${items.length} · Total: Rs ${Number(sale.total).toLocaleString()}`,
-      Number(sale.paid) > 0 ? `Received: Rs ${Number(sale.paid).toLocaleString()}` : null,
-      Number(sale.balance) > 0 ? `Balance (udhaar): Rs ${Number(sale.balance).toLocaleString()}` : "Fully paid — Shukriya!",
+      `Invoice ${sale.invoiceNo} · ${dateFmt(sale.date)}`,
+      `Items: ${items.length} · Total: ${money(sale.total)}`,
+      Number(sale.paid) > 0 ? `Received: ${money(sale.paid)}` : null,
+      Number(sale.balance) > 0 ? `Balance (udhaar): ${money(sale.balance)}` : "Fully paid — Shukriya!",
       `— ${businessName || ""}`,
+      "Invoice PDF attached.",
     ].filter(Boolean).join("\n");
-    return `https://wa.me/${String(customerPhone || "").replace(/[^0-9]/g, "")}?text=${encodeURIComponent(lines)}`;
-  }, [sale, items, businessName, customerPhone]);
+  }, [sale, items, businessName]);
+  const waHref = useMemo(() => `https://wa.me/${waPhone(customerPhone)}?text=${encodeURIComponent(waText)}`, [waText, customerPhone]);
+
+  async function sendInvoiceWhatsApp() {
+    if (!sale) return;
+    // Open the customer's exact chat FIRST, synchronously in the click, so the browser never blocks it.
+    window.open(waHref, "_blank", "noopener,noreferrer");
+    // Then generate the invoice PDF and save it, so it's ready to attach with the paperclip.
+    setWaBusy(true);
+    try {
+      if (invoiceData) {
+        const blob = await buildInvoicePdfBlob(invoiceData);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `Invoice-${sale.invoiceNo}.pdf`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 8000);
+        toast("Chat opened. Invoice PDF saved to Downloads — tap the paperclip in WhatsApp, choose it, then Send.");
+      }
+    } catch {
+      toast("Chat opened with the invoice summary (PDF could not be generated).");
+    }
+    setWaBusy(false);
+  }
 
   async function doVoid() {
     setBusy(true); setErr("");
@@ -74,12 +99,12 @@ export function InvoiceActions({ saleId, customerId, items, canOverride, sale, c
         </select>
         <Link href={`/reports?tab=ledger&kind=customer&party=${customerId}`} className="rounded-lg border border-line bg-white px-3.5 py-2 text-sm font-semibold shadow-sm hover:bg-[#f6f5ef]">{t("View Ledger")}</Link>
         {canOverride && <Button variant="outline" onClick={() => setEditOpen(true)}>{t("Edit Invoice")}</Button>}
-        <Button variant="outline" onClick={doPrint}>🖨 {t("Print Invoice")}</Button>
+        <Button variant="outline" onClick={doPrint}><AppIcon name="print" /> {t("Print Invoice")}</Button>
         {customerPhone && (
-          <a href={waHref} target="_blank" rel="noreferrer"
-            className="rounded-md border border-line bg-white px-3.5 py-2 text-xs font-bold hover:border-brand">
-            📲 {t("Invoice")} WhatsApp
-          </a>
+          <button onClick={sendInvoiceWhatsApp} disabled={waBusy}
+            className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-3.5 py-2 text-xs font-bold hover:border-brand disabled:opacity-60">
+            {waBusy ? t("Preparing PDF…") : <><AppIcon name="phone" /> {t("Invoice")} WhatsApp</>}
+          </button>
         )}
         <Button variant="outline" onClick={() => setRetOpen(true)}>{t("Sales Return")}</Button>
         {canOverride && <Button variant="danger" onClick={() => setVoidOpen(true)}>{t("Void Invoice")}</Button>}
@@ -136,23 +161,29 @@ function EditInvoiceModal({ open, onClose, sale, items }) {
 
   useEffect(() => {
     if (open) {
-      setLines(items.map((i) => ({ productId: i.productId, name: `${i.name}${i.color ? " " + i.color : ""}`, qty: Number(i.qty), rate: Number(i.rate), discount: Number(i.discount || 0) })));
+      /* Stateful-dialog reset: seed editable lines/discount from props each time it opens. */
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setLines(items.map((i) => ({ productId: i.productId, name: `${i.name}${i.color ? " " + i.color : ""}`, qty: Number(i.qty), rate: Number(i.rate), discount: Number(i.discount || 0), gstRate: Number(i.gstRate || 0) })));
       setDiscount(String(Number(sale.discount || 0)));
       setErr("");
+      /* eslint-enable react-hooks/set-state-in-effect */
       fetch("/api/products").then((r) => r.json()).then((d) => setProducts(d.products || [])).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+  const gstOn = !!sale.gstMode && sale.gstMode !== "none";
   const lineTotal = (l) => r2(l.qty * l.rate - (l.discount || 0));
   const subtotal = r2(lines.reduce((a, l) => a + lineTotal(l), 0));
-  const total = r2(Math.max(0, subtotal - (Number(discount) || 0)));
+  const gstTotal = r2(lines.reduce((a, l) => a + (gstOn ? lineTotal(l) * (Number(l.gstRate) || 0) / 100 : 0), 0));
+  const disc = r2(Math.min(Number(discount) || 0, subtotal));
+  const total = r2(Math.max(0, subtotal - disc + gstTotal));
 
   function addLine() {
     const p = products.find((x) => String(x.id) === addId);
     if (!p) return;
-    setLines((ls) => ls.some((l) => l.productId === p.id) ? ls : [...ls, { productId: p.id, name: `${p.name}${p.color ? " " + p.color : ""}`, qty: 1, rate: Number(p.wholesalePrice || 0), discount: 0 }]);
+    setLines((ls) => ls.some((l) => l.productId === p.id) ? ls : [...ls, { productId: p.id, name: `${p.name}${p.color ? " " + p.color : ""}`, qty: 1, rate: Number(p.wholesalePrice || 0), discount: 0, gstRate: Number(p.gstRate || 0) }]);
     setAddId("");
   }
 
@@ -183,7 +214,7 @@ function EditInvoiceModal({ open, onClose, sale, items }) {
         </div>
         <Button variant="outline" onClick={addLine} disabled={!addId}>+ {t("Add line")}</Button>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-line">
+      <div className="overflow-x-auto tblwrap rounded-lg border border-line">
         <table className="tbl">
           <thead><tr><th>{t("Product")}</th><th className="num">{t("Qty")}</th><th className="num">{t("Rate")}</th><th className="num">{t("Discount")}</th><th className="num">{t("Total")}</th><th></th></tr></thead>
           <tbody>
@@ -201,10 +232,20 @@ function EditInvoiceModal({ open, onClose, sale, items }) {
           </tbody>
         </table>
       </div>
-      <div className="flex items-center justify-end gap-4 mt-3 text-sm">
+      <div className="mt-3 flex flex-wrap items-end justify-between gap-4 text-sm">
         <div className="flex items-center gap-2"><span className="text-mute">{t("Discount")}</span>
           <input type="number" min="0" className="inp !w-28 !py-1 text-right tnum" value={discount} onChange={(e) => setDiscount(e.target.value)} /></div>
-        <div className="tnum font-bold">{t("Total")}: {total.toLocaleString()}</div>
+        <div className="ms-auto w-60 space-y-1">
+          <div className="flex justify-between"><span className="text-mute">{t("Subtotal")}</span><span className="tnum">{subtotal.toLocaleString()}</span></div>
+          {disc > 0 && <div className="flex justify-between"><span className="text-mute">{t("Discount")}</span><span className="tnum">- {disc.toLocaleString()}</span></div>}
+          {gstTotal > 0 && (sale.gstMode === "inter"
+            ? <div className="flex justify-between"><span className="text-mute">IGST</span><span className="tnum">{gstTotal.toLocaleString()}</span></div>
+            : <>
+              <div className="flex justify-between"><span className="text-mute">CGST</span><span className="tnum">{r2(gstTotal / 2).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-mute">SGST</span><span className="tnum">{r2(gstTotal / 2).toLocaleString()}</span></div>
+            </>)}
+          <div className="flex justify-between font-bold border-t border-line pt-1"><span>{t("Total")}</span><span className="tnum">{total.toLocaleString()}</span></div>
+        </div>
       </div>
       <p className="text-[0.7rem] text-mute mt-3">{t("Saving re-syncs stock, the customer khata, outstanding balances, reports and the audit trail.")}</p>
       <div className="mt-3"><ErrorNote error={err} /></div>

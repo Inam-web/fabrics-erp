@@ -1,11 +1,20 @@
-# Afridi Fabrics — Wholesale Fabric Business ERP
+# AfridiTech ERP — Wholesale Business Management (Multi-Trade)
 
-A production-grade ERP for a Pakistani wholesale fabric shop: wholesale billing, fabric
-inventory with godowns, customer khata & ledgers, weekly **Ograi / recovery** tracking,
-supplier books, purchases, expenses, cash & bank, cheques, double-entry journal,
-P&L / receivables / payables reports, audit log, roles and EN/اردو/پښتو UI.
+A production-grade, multi-tenant ERP for Pakistani wholesale businesses — built around
+the fabric trade but supporting **15 business types** (fabric, garments, general store,
+services, pharmacy, electronics, hardware, auto, furniture, cosmetics, stationery, food,
+jewelry, agriculture, tiles). Each trade gets correct units (kg/meter/pieces/…), labels
+and stock behaviour chosen per business.
 
-Built with **Next.js (App Router) + PostgreSQL + Drizzle ORM**.
+Every tenant gets: wholesale & retail billing with printable/PDF invoices (WhatsApp
+delivery), fabric-style inventory with godowns and stock movements, customer khata &
+ledgers, weekly **Ograi / recovery** schedules, supplier books & purchases with returns,
+expenses, cash & bank with transfers, cheques, staff & payroll, salesmen & routes,
+double-entry journal, P&L / trial balance / receivables / payables / party-ledger
+reports, audit log, day closings, global search (`/`), bulk CSV import, CSV export,
+nightly automatic backups, and a fully translated **EN / اردو / پښتو** interface.
+
+Built with **Next.js 16 (App Router) + React 19 + PostgreSQL + Drizzle ORM + Tailwind 4**.
 
 ---
 
@@ -74,11 +83,11 @@ in both (keep them identical):
 Still in the project folder:
 
 ```bash
-# create all 35 tables
+# create all 41 tables
 npx drizzle-kit push
 
 # seed the demo business: Afridi Fabrics Wholesale
-# (55 customers, 16 suppliers, 120 fabrics, ~410 invoices, payments, ograi history…)
+# (customers, suppliers, fabrics, invoices, payments, ograi history…)
 npx tsx scripts/seed.mts
 ```
 
@@ -106,7 +115,7 @@ Open **http://localhost:3000**
 
 ---
 
-## 6. Sign in (demo accounts)
+## 6. Sign in (demo account)
 
 | Role | Email | Password |
 |---|---|---|
@@ -114,6 +123,8 @@ Open **http://localhost:3000**
 
 This account is permanent, cannot be disabled, and is the **only** account that can see
 Settings → Demo Access / Owner Mailbox. Client accounts never see demo controls.
+New businesses can also self-register from the login page ("Start Your Own Business")
+— see [registration](#owner-controlled-business-registration-built-in-mail-system).
 
 ---
 
@@ -122,6 +133,10 @@ Settings → Demo Access / Owner Mailbox. Client accounts never see demo control
 ```bash
 npm run dev                 # start development server
 npm run build && npm start  # production build + run
+npm test                    # vitest suite (43 tests — money flow, auth, reports, dashboard)
+npm run test:watch          # tests in watch mode
+npm run lint                # eslint
+npm run typecheck           # tsc --noEmit
 npx drizzle-kit push        # apply schema changes after editing src/db/schema.ts
 npx tsx scripts/seed.mts    # seed (only works on an empty database)
 ```
@@ -138,7 +153,31 @@ npx tsx scripts/seed.mts
 
 ---
 
-## 8. Troubleshooting
+## 8. Environment variables
+
+All live in `.env` (see `.env.example`):
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string (required) |
+| `APP_URL` | Base URL used in links (optional) |
+| `BACKUP_DIR` | Folder for **nightly automatic JSON backups** of every business (optional — unset = auto-backup off, manual backup still works) |
+| `SMTP_HOST/PORT/USER/PASS`, `MAIL_FROM`, `OWNER_VERIFY_EMAIL` | Optional real-email delivery for verification/reset codes (nodemailer). Unset = codes land in the in-app Owner Mailbox only |
+| `RESEND_API_KEY` | Optional fallback email provider |
+
+---
+
+## 9. Backups
+
+- **Manual:** Settings → **Download full backup** produces a complete JSON snapshot of
+  your business (documents, parties, stock, journal) anytime; a reminder nags gently
+  until you do.
+- **Automatic:** set `BACKUP_DIR` and every business gets a nightly JSON backup written
+  to that folder (first run after 02:00 Karachi time, once per day).
+
+---
+
+## 10. Troubleshooting
 
 | Problem | Fix |
 |---|---|
@@ -152,26 +191,38 @@ npx tsx scripts/seed.mts
 
 ---
 
-## 9. Project map
+## 11. Project map
 
 ```
 src/
-  db/schema.ts            # all 35 tables (Drizzle)
+  db/schema.ts            # all 41 tables (Drizzle)
   db/index.ts             # db client (reads DATABASE_URL)
   server/
     services.mjs          # ★ business engine: sales, payments, purchases, returns,
                           #   stock movements, ograi schedules, expenses, journal posting,
-                          #   ledgers, reports — all inside DB transactions
+                          #   ledgers, payroll — all inside DB transactions
+    reports.mjs           # report queries (P&L, trial balance, party ledgers, dashboard)
     auth.mjs              # scrypt password hashing + sessions + rate limiting
     api.mjs               # route wrapper: auth + error envelope
+    mail.mjs              # layered mail: in-app owner mailbox → SMTP → Resend
+    migrate.mjs           # startup data migrations
+    seed-demo.mjs         # demo business generator (used by scripts/seed.mts)
+    __tests__/            # vitest suite: money flow, auth, reports, dashboard
   app/
-    login/                # sign-in
+    login/ reset/         # sign-in (incl. client demo access) + 3-step OTT password reset
     (app)/                # authenticated area (sidebar shell)
       dashboard/ customers/ sales/ purchases/ ograi/ inventory/
       suppliers/ expenses/ cashbank/ cheques/ reports/ settings/
-    api/                  # REST endpoints (auth, sales, payments, stock, ograi, …)
-  components/             # UI kit, billing screen, payment dialog, ledger view, shell
-scripts/seed.mts          # demo business generator (runs through the real services)
+    api/                  # REST endpoints: auth, register, sales, purchases, payments,
+                          #   stock, returns, ograi, customers, suppliers, products,
+                          #   expenses, cashbank, cheques, settings, search, export,
+                          #   backup, health
+  components/             # UI kit, billing screen, payment dialog, ledger view, shell,
+                          #   barcode, i18n provider
+  lib/
+    i18n.js               # EN / اردو / پښتو dictionaries (audit: scripts/i18n-audit.mjs)
+    businessTypes.js      # the 15 trade definitions (units, labels, stock behaviour)
+scripts/seed.mts          # entry point for the demo seed
 ```
 
 Every financial operation (sale, payment, purchase, return, adjustment, transfer, expense)
@@ -181,36 +232,52 @@ double-entry journal — everything rolls back together if any step fails.
 
 ---
 
-## Forgot Password — one-time code (OTT) flow
+## 12. Tests & quality gates
+
+```bash
+npm test        # 43 tests / 8 files — regression guards for the money flow,
+                # auth & sessions, report math, dashboard queries (DB tests auto-skip
+                # when PostgreSQL is unreachable)
+npm run lint    # eslint (next config)
+npm run typecheck
+node scripts/i18n-audit.mjs   # every t() key used in the app must exist in ur + ps
+```
+
+---
+
+## 13. Forgot Password — one-time code (OTT) flow
 
 Login → **"Forgot password?"** → `/reset` — a 3-step flow (Email → Code → New password)
 with a professional 6-box OTP entry (auto-advance, paste, backspace).
 
-1. **Email** — enter the registered business email → server issues a **6-digit OTT**
-   (single-use, 10-minute expiry, rate-limited).
-2. **The 6-digit code is emailed ONLY to the owner** (`OWNER_VERIFY_EMAIL`) via Resend.
-   If the configured `MAIL_FROM` sender isn't verified at Resend, delivery automatically
-   retries once with Resend's verified default sender. If delivery still fails, the
-   registration is kept in `pending` state, the client sees the code-entry screen with a
-   clear delivery warning, and **Resend code** retries once email works. The real Resend
-   error (sanitized, never containing the key or code) is returned and logged server-side.
-3. **Without `RESEND_API_KEY`** registration returns a clear 503 configuration error and
-   creates nothing — no mocks, no hidden codes.
-4. **New password** — set it (show/hide eye). All other sessions are signed out and the
-   account opens immediately at the dashboard with the new password.
+1. **Email** — enter the registered business email. The server issues a **6-digit OTT**
+   (SHA-256 hashed, single-use, 10-minute expiry, rate-limited to 3 requests/minute).
+2. **Delivery** uses the layered mail system (`src/server/mail.mjs`): the code is **always**
+   stored in the platform owner's secure **in-app Owner Mailbox** (Settings → Owner Mailbox,
+   owner role only). External delivery is then attempted **SMTP first** (nodemailer, sent to
+   the requesting user's own address) and falls back to **Resend** (`RESEND_API_KEY`) when no
+   SMTP is configured. The API reports `delivery: "email"` when the code actually reached an
+   inbox, or `delivery: "mailbox"` when it is only waiting in the owner's mailbox — the reset
+   screen words its message accordingly.
+3. **No provider configured?** Nothing breaks: the code still lands in the owner's in-app
+   mailbox, and the owner shares it with the person resetting. The code is **never** returned
+   to the browser and **never** logged.
+4. **New password** — enter the code, then set a new password (show/hide eye). All other
+   sessions for that account are signed out and the account opens immediately at the dashboard.
 
-Unknown emails receive a neutral response (account existence is not revealed when
-email delivery is configured). Codes are stored only as SHA-256 hashes.
+Unknown emails receive a neutral response, so account existence is never revealed.
 
-## Owner-controlled business registration verification (built-in mail system)
+---
 
-When a client submits **“Start Your Own Business”**, the business + owner account are created in
+## 14. Owner-controlled business registration (built-in mail system)
+
+When a client submits **"Start Your Own Business"**, the business + owner account are created in
 **pending** state and a **6-digit verification code** is delivered through the ERP's **own mail
 system** — no third-party service required:
 
 1. **In-app Owner Mailbox** (always on): Settings → **Owner Mailbox** shows the verification
-   email with the code in a copy-button. Only the owner role can see it. Codes are never shown
-   to clients, logs, or public responses.
+   email with the code in a copy-button. Only the platform owner role can see it. Codes are
+   never shown to clients, logs, or public responses.
 2. **Optional real email**: set `SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS` (+`MAIL_FROM`,
    `OWNER_VERIFY_EMAIL`) in `.env` and the same message is also emailed via our own nodemailer
    SMTP transport. Delivery failures never block registration — the in-app mailbox always works.
@@ -218,10 +285,16 @@ system** — no third-party service required:
 The owner personally shares the code with the client; the client enters it on the registration
 screen to activate the business and sign in. Codes: SHA-256 hashed in DB, 24 h expiry,
 single-use, 5 wrong attempts lock, resend regenerates + invalidates the old code, rate-limited.
-Pending businesses cannot sign in. Resend is **not used anywhere** in this project.
+Pending businesses cannot sign in.
 
-## Demo access codes (owner workflow)
-1. Sign in as **owner** → **Settings → Demo Access**.
+After activation the new owner picks a **business type** (one of the 15 trades) — this tunes
+units, labels and stock behaviour across the whole app.
+
+---
+
+## 15. Demo access codes (owner workflow)
+
+1. Sign in as the **demo control owner** → **Settings → Demo Access**.
 2. Enter client name (+ optional email/note) and expiry (1/7/15/30 days) → **Grant demo access**.
    A unique `DEMO-XXXXXXXX` code is generated and shown once — **Copy** it or **Send WhatsApp**.
 3. The client opens **/login**, enters the code in **Client demo access**, and gets a
@@ -230,3 +303,18 @@ Pending businesses cannot sign in. Resend is **not used anywhere** in this proje
    customers, suppliers, inventory, expenses). Remaining counts show in Settings and in
    the demo user's banner. Reads stay unlimited. Revoke/expire blocks new logins and
    kills active demo sessions.
+5. Grants can be **Revoked**, **Reactivated**, or fully **Deleted** — deletion cleans up the
+   hidden demo user and every database reference to it atomically.
+
+---
+
+## 16. Users & roles
+
+Settings → **Users & Roles** manages the team: add users, **edit** any account
+(name / email / phone / role), and enable/disable access. Guardrails are server-enforced:
+no self-demotion, only the owner can touch owner accounts, the demo control account is
+permanent, and every change is written to the Audit Log.
+
+Roles: **owner** (full control) · **manager** (void/override/closings/settings) ·
+**accountant** (money + closings) · **cashier** (payments) · **salesman** (billing + ograi)
+· **warehouse** (stock adjustments).
