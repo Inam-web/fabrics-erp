@@ -76,6 +76,10 @@ kbd.kbd {
    NOTE: sticky-header experiments (overflow-y:clip viewport pinning, height-capped
    scroll boxes, page-fill layouts) were all reverted at the user's request. */
 .tblwrap { overflow-x: auto; }
+
+/* dashboard trend chart — invisible hover columns that tint the month on mouse-over */
+.mhit { fill: transparent; transition: fill 0.12s ease; }
+.mhit:hover { fill: rgb(13 107 87 / 0.06); }
 .tbl thead th:first-child { border-top-left-radius: 0.5rem; }
 .tbl thead th:last-child { border-top-right-radius: 0.5rem; }
 .tbl tbody td { padding: 0.54rem 0.7rem; border-bottom: 1px solid var(--color-line-soft); vertical-align: middle; }

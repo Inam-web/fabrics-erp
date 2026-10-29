@@ -71,6 +71,27 @@ export default async function DashboardPage() {
 
   const weekPct = Number(d.weekAgg.expected) > 0 ? Math.min(100, Math.round(Number(d.weekAgg.collected) / Number(d.weekAgg.expected) * 100)) : 0;
 
+  // ── 6-month trend chart geometry (SVG units; responsive via preserveAspectRatio).
+  // x positions are inset by half a column so month labels below align with the points.
+  const TC = { W: 600, H: 192, PAD: 12 };
+  const tN = d.months.keys.length;
+  const tPadX = TC.W / (2 * Math.max(1, tN));
+  const tMax = Math.max(...d.months.sales, ...d.months.collections, ...d.months.expenses, 1);
+  const tTop = tMax * 1.12; // 12% headroom so the smooth curve never overshoots the top gridline
+  const tx = (i) => tPadX + (i * (TC.W - 2 * tPadX)) / Math.max(1, tN - 1);
+  const ty = (v) => TC.PAD + (1 - Math.min(Number(v), tTop) / tTop) * (TC.H - TC.PAD);
+  // Catmull-Rom → cubic Bézier: a smooth curve through every monthly point
+  const tLine = (vals) => {
+    const pts = vals.map((v, i) => [tx(i), ty(v)]);
+    let p = `M ${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+      p += ` C ${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)},${(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)},${(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+    }
+    return p;
+  };
+  const tArea = (vals) => `${tLine(vals)} L ${tx(tN - 1).toFixed(1)},${TC.H} L ${tx(0).toFixed(1)},${TC.H} Z`;
+
   return (
     <div className="space-y-4">
       {(bkDays === null || bkDays >= 7) && (
@@ -108,28 +129,53 @@ export default async function DashboardPage() {
             <span className="flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-sm bg-danger inline-block" />{t("Expenses")}</span>
           </div>
         </div>
-        {/* columns must stretch (not items-end) so the flex-1 track gets real height and the bars show */}
-        <div className="mt-3 flex gap-2 sm:gap-3" style={{ height: "12rem" }}>
-          {d.months.keys.map((mk, i) => {
-            const max = Math.max(...d.months.sales, ...d.months.expenses, ...d.months.collections, 1);
-            const h = (v) => Math.max(2, Math.round((v / max) * 148));
-            const label = new Date(mk + "-01T00:00:00Z").toLocaleDateString("en-GB", { month: "short" });
-            return (
-              <div key={mk} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-                <div className="relative w-full flex-1 rounded-lg bg-paper/70 border border-line-soft overflow-hidden">
-                  <div className="absolute inset-x-0 top-1/3 border-t border-dashed border-line-soft" />
-                  <div className="absolute inset-x-0 top-2/3 border-t border-dashed border-line-soft" />
-                  <div className="absolute inset-x-0 bottom-0 flex items-end justify-center gap-1 sm:gap-1.5 px-2">
-                    <div title={`${t("Sales")}: ${money(d.months.sales[i])}`} className="w-1/5 max-w-4 rounded-t bg-brand/85 hover:bg-brand transition-colors" style={{ height: `${h(d.months.sales[i])}px` }} />
-                    <div title={`${t("Collected")}: ${money(d.months.collections[i])}`} className="w-1/5 max-w-4 rounded-t bg-accent/85 hover:bg-accent transition-colors" style={{ height: `${h(d.months.collections[i])}px` }} />
-                    <div title={`${t("Expenses")}: ${money(d.months.expenses[i])}`} className="w-1/5 max-w-4 rounded-t bg-danger/80 hover:bg-danger transition-colors" style={{ height: `${h(d.months.expenses[i])}px` }} />
-                  </div>
+        {/* trend view — smooth gradient area-lines for Sales/Collected, muted expense bars behind,
+            dashed gridlines with a compact axis, and per-month hover tooltips (dir=ltr: SVG axis) */}
+        <div className="mt-4 flex gap-2" dir="ltr">
+          <div className="relative w-11 shrink-0 text-[0.58rem] text-mute" style={{ height: "12rem" }}>
+            {[1, 2 / 3, 1 / 3, 0].map((g) => (
+              <span key={g} className="absolute right-1 -translate-y-1/2 tnum whitespace-nowrap" style={{ top: `${(ty(tMax * g) / TC.H) * 100}%` }}>{g === 0 ? "0" : compact(tMax * g)}</span>
+            ))}
+          </div>
+          <div className="min-w-0 flex-1">
+            <svg viewBox={`0 0 ${TC.W} ${TC.H}`} preserveAspectRatio="none" className="h-48 w-full" role="img" aria-label={t("Last 6 months")}>
+              <defs>
+                <linearGradient id="tr-sales" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#0d6b57" stopOpacity="0.3" />
+                  <stop offset="100%" stopColor="#0d6b57" stopOpacity="0.02" />
+                </linearGradient>
+                <linearGradient id="tr-coll" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#b97a12" stopOpacity="0.22" />
+                  <stop offset="100%" stopColor="#b97a12" stopOpacity="0.02" />
+                </linearGradient>
+              </defs>
+              {[1 / 3, 2 / 3, 1].map((g) => (
+                <line key={g} x1="0" x2={TC.W} y1={ty(tMax * g)} y2={ty(tMax * g)} stroke="#edeae0" strokeDasharray="4 5" vectorEffect="non-scaling-stroke" />
+              ))}
+              <line x1="0" x2={TC.W} y1={TC.H - 1} y2={TC.H - 1} stroke="#e3dfd2" vectorEffect="non-scaling-stroke" />
+              {d.months.expenses.map((v, i) => (Number(v) > 0 ? <rect key={i} x={tx(i) - 7} y={ty(v)} width="14" height={TC.H - ty(v)} rx="3" fill="#b3402e" opacity="0.15" /> : null))}
+              <path d={tArea(d.months.collections)} fill="url(#tr-coll)" />
+              <path d={tArea(d.months.sales)} fill="url(#tr-sales)" />
+              <path d={tLine(d.months.collections)} fill="none" stroke="#b97a12" strokeWidth="2" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+              <path d={tLine(d.months.sales)} fill="none" stroke="#0d6b57" strokeWidth="2.5" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+              {d.months.keys.map((mk, i) => {
+                const step = (TC.W - 2 * tPadX) / Math.max(1, tN - 1);
+                return (
+                  <rect key={mk} className="mhit" x={tx(i) - step / 2} y="0" width={step} height={TC.H}>
+                    <title>{`${new Date(mk + "-01T00:00:00Z").toLocaleDateString("en-GB", { month: "long", year: "numeric" })}\n${t("Sales")}: ${money(d.months.sales[i])}\n${t("Collected")}: ${money(d.months.collections[i])}\n${t("Expenses")}: ${money(d.months.expenses[i])}`}</title>
+                  </rect>
+                );
+              })}
+            </svg>
+            <div className="mt-2 grid" style={{ gridTemplateColumns: `repeat(${tN}, 1fr)` }}>
+              {d.months.keys.map((mk, i) => (
+                <div key={mk} className="min-w-0 text-center">
+                  <div className="text-[0.66rem] font-extrabold uppercase tracking-wide text-mute">{new Date(mk + "-01T00:00:00Z").toLocaleDateString("en-GB", { month: "short" })}</div>
+                  <div className="text-[0.6rem] text-mute tnum">{compact(d.months.sales[i])}</div>
                 </div>
-                <div className="text-[0.66rem] font-extrabold uppercase tracking-wide text-mute">{label}</div>
-                <div className="text-[0.6rem] text-mute tnum -mt-1">{compact(d.months.sales[i])}</div>
-              </div>
-            );
-          })}
+              ))}
+            </div>
+          </div>
         </div>
       </Card>
 
