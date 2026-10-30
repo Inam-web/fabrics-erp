@@ -8,6 +8,15 @@ import { BRAND } from "@/lib/brand.mjs";
 import { BUSINESS_TYPES } from "@/lib/businessTypes";
 
 
+// WhatsApp glyph — module level so it is not re-created on every render
+function WaGlyph({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.229 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
+    </svg>
+  );
+}
+
 export default function LoginPage() {
   const t = useT();
   const langCode = useLangCode();
@@ -25,6 +34,15 @@ export default function LoginPage() {
   const [info, setInfo] = useState("");
   const [regStep, setRegStep] = useState("form"); // form | verify
   const [vcode, setVcode] = useState("");
+  const [waOpen, setWaOpen] = useState(false); // WhatsApp concierge popup menu
+
+  // Escape closes the concierge dialog
+  useEffect(() => {
+    if (!waOpen) return;
+    const h = (e) => { if (e.key === "Escape") setWaOpen(false); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [waOpen]);
 
   useEffect(() => {
     fetch("/api/health").then((r) => r.json()).then((d) => {
@@ -128,6 +146,13 @@ export default function LoginPage() {
   const feats = [t("Billing"), t("Ograi / Collections"), t("Inventory"), t("Reports"), t("Cash & Bank")];
   const bizTypes = Object.entries(BUSINESS_TYPES).map(([key, v]) => ({ key, label: v.label }));
   const bars = [26, 40, 30, 54, 38, 62, 46];
+
+  // WhatsApp concierge — demo codes and business accounts open only after the
+  // owner talks to the client; these links start a ready-written chat (intl format).
+  const WA_NUM = "923377678409";
+  const waLink = (msg) => `https://wa.me/${WA_NUM}?text=${encodeURIComponent(msg)}`;
+  const waDemo = waLink("Assalam-o-Alaikum! I would like a DEMO ACCESS code for AfridiTech ERP. Please guide me.");
+  const waBiz = waLink("Assalam-o-Alaikum! I want to open a BUSINESS ACCOUNT on AfridiTech ERP for my shop. Please guide me about pricing and activation.");
 
   return (
     <div className="min-h-screen w-full bg-[#eae7dd] text-[#1f241c] grid lg:grid-cols-[1.05fr_1fr] items-stretch">
@@ -330,6 +355,61 @@ export default function LoginPage() {
                   <span>{t("Every new business is reviewed and verified by our team before it goes live.")}</span>
                 </p>
               </form>
+            )}
+
+            {/* WhatsApp concierge — slim trigger; the options live in a popup menu */}
+            <div className="mt-6 text-center">
+              <button type="button" onClick={() => setWaOpen(true)}
+                className="inline-flex items-center gap-2 rounded-full border border-[#128c4a]/30 bg-[#f2faf5] hover:bg-[#e4f4ea] text-[#0d6f3a] text-[0.74rem] font-bold px-4 py-2 transition-colors">
+                <WaGlyph size={14} /> {t("Need access? Chat with us on WhatsApp")}
+              </button>
+            </div>
+
+            {waOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t("Talk to us on WhatsApp")}>
+                <div className="absolute inset-0 bg-[#101409]/55 backdrop-blur-[2px]" onClick={() => setWaOpen(false)} />
+                <div className="relative w-full max-w-[380px] rounded-2xl border border-[#e3dfd2] bg-white p-5 shadow-[0_30px_80px_rgba(0,0,0,0.35)]">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#dcf5e7] text-[#128c4a] ring-1 ring-[#128c4a]/20">
+                      <WaGlyph size={19} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-display text-[1.02rem] font-bold text-[#1f241c] leading-tight">{t("Talk to us on WhatsApp")}</div>
+                      <p className="text-[0.72rem] text-[#68705f] mt-1 leading-relaxed">{t("Demo codes and business accounts are opened personally by our team after a short discussion. Message us on WhatsApp — we usually reply the same day.")}</p>
+                    </div>
+                    <button type="button" onClick={() => setWaOpen(false)} aria-label={t("Close")}
+                      className="shrink-0 -me-1 -mt-1 rounded-lg p-1.5 text-[#8b9080] hover:bg-[#f2f0e8] hover:text-[#1f241c] transition-colors">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    <a href={waDemo} target="_blank" rel="noopener noreferrer"
+                      className="group flex items-center gap-3 rounded-xl border border-[#e3dfd2] bg-white px-3.5 py-3 transition-colors hover:border-[#128c4a]/50 hover:bg-[#f6fbf7]">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#128c4a] text-white"><WaGlyph size={15} /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[0.82rem] font-bold text-[#1f241c]">{t("Request demo access")}</span>
+                        <span className="block text-[0.68rem] text-[#8b9080] mt-0.5">{t("Get an invitation code for the demo environment")}</span>
+                      </span>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[#b3b3a1] group-hover:text-[#0d6f3a] transition-colors rtl:rotate-180"><path d="M7 17L17 7M9 7h8v8" /></svg>
+                    </a>
+                    <a href={waBiz} target="_blank" rel="noopener noreferrer"
+                      className="group flex items-center gap-3 rounded-xl border border-[#e3dfd2] bg-white px-3.5 py-3 transition-colors hover:border-[#128c4a]/50 hover:bg-[#f6fbf7]">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0d6b57] text-white">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6" /></svg>
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[0.82rem] font-bold text-[#1f241c]">{t("Open a business account")}</span>
+                        <span className="block text-[0.68rem] text-[#8b9080] mt-0.5">{t("Pricing, activation and your verification code")}</span>
+                      </span>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[#b3b3a1] group-hover:text-[#0d6f3a] transition-colors rtl:rotate-180"><path d="M7 17L17 7M9 7h8v8" /></svg>
+                    </a>
+                  </div>
+                  <div className="mt-3.5 flex items-center justify-center gap-1.5 border-t border-[#eee9dc] pt-3 text-[0.72rem] font-bold text-[#68705f]">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" /></svg>
+                    <span dir="ltr">+92 337 7678409</span>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </div>
