@@ -9,7 +9,7 @@ import { BUSINESS_TYPES } from "@/lib/businessTypes";
 
 const ROLES = [["owner", "Owner / Super Admin"], ["manager", "Manager"], ["accountant", "Accountant"], ["cashier", "Cashier"], ["salesman", "Salesman"], ["warehouse", "Warehouse Staff"]];
 
-export default function SettingsClient({ business, users, salesmen, routes, audit, closings, warehouses, employees, accounts, canManage, demo, isOwner, mailbox, isDemoOwner }) {
+export default function SettingsClient({ business, users, salesmen, routes, audit, closings, warehouses, employees, accounts, canManage, demo, isOwner, mailbox, isDemoOwner, mySessions }) {
   const t = useT();
   const [tab, setTab] = useState("business");
   const router = useRouter();
@@ -24,7 +24,7 @@ export default function SettingsClient({ business, users, salesmen, routes, audi
       </div>
 
       {tab === "business" && <BusinessForm business={business} canManage={canManage} />}
-      {tab === "users" && <UsersPanel users={users} canManage={canManage} router={router} />}
+      {tab === "users" && <><UsersPanel users={users} canManage={canManage} router={router} /><SessionsPanel sessions={mySessions || []} router={router} /></>}
       {tab === "salesmen" && <SalesmenPanel salesmen={salesmen} routes={routes} canManage={canManage} router={router} />}
       {tab === "warehouses" && <WarehousesPanel warehouses={warehouses} canManage={canManage} router={router} />}
       {tab === "demo" && demo && <DemoAccessPanel demo={demo} />}
@@ -141,6 +141,61 @@ function BusinessForm({ business, canManage }) {
         <a href="/api/backup" className="inline-flex items-center gap-1.5 rounded-md bg-brand hover:bg-brand-deep text-white text-sm font-semibold px-4 py-2"><AppIcon name="down" /> Download full backup</a>
       </div>
     </div>
+  );
+}
+
+// "Your active sessions" — each row is one login of the signed-in user (own account only).
+// Tokens stay server-side; the browser sees only device, dates and which row is "here".
+function SessionsPanel({ sessions, router }) {
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const others = sessions.filter((s) => !s.isCurrent).length;
+  async function signOutOthers() {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "signout_others" }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast(`${data.ended} ${data.ended === 1 ? "session" : "sessions"} signed out`);
+      router.refresh();
+    } catch (e) { toast(e.message, "err"); }
+    setBusy(false);
+  }
+  const shortAgent = (a) => {
+    if (!a) return t("Unknown device");
+    const m = a.match(/(Chrome|Edge|Firefox|Safari|Edg)\/\d+/i);
+    return m ? m[0].replace("Edg", "Edge").replace(/\/\d+/, "") : a.slice(0, 30);
+  };
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+        <div>
+          <h2 className="text-sm font-bold">{t("Your active sessions")}</h2>
+          <div className="text-xs text-mute">{t("Each login keeps you signed in on that device for 30 days. Sign out any you don't recognise.")}</div>
+        </div>
+        <Button variant="outline" onClick={signOutOthers} disabled={busy || others === 0}>
+          {busy ? t("Signing out…") : `${t("Sign out all other sessions")}${others > 0 ? ` (${others})` : ""}`}
+        </Button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="wt text-sm">
+          <thead>
+            <tr><th>{t("Device")}</th><th>{t("Browser")}</th><th>{t("Signed in")}</th><th>{t("Expires")}</th></tr>
+          </thead>
+          <tbody>
+            {sessions.map((s, i) => (
+              <tr key={i} className={s.isCurrent ? "bg-line/40" : ""}>
+                <td className="font-semibold">{s.isCurrent ? t("This device") : t("Other")}</td>
+                <td>{shortAgent(s.agent)}</td>
+                <td>{s.createdAt ? dtFmt(new Date(s.createdAt)) : "—"}</td>
+                <td>{s.expiresAt ? dateFmt(new Date(s.expiresAt)) : "—"}</td>
+              </tr>
+            ))}
+            {!sessions.length && <tr><td colSpan={4} className="text-center text-mute py-3">{t("No active sessions")}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 

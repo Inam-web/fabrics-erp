@@ -1,7 +1,7 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { businesses, users, salesmen, salesmanRoutes, auditLogs, dayClosings, accounts, warehouses, employees, demoGrants, demoUsage, ownerMailbox } from "@/db/schema";
-import { getUser } from "@/server/auth.mjs";
+import { getUser, mySessions } from "@/server/auth.mjs";
 import { redirect } from "next/navigation";
 import SettingsClient from "./_client";
 import { getLang, makeT } from "@/lib/i18n";
@@ -15,6 +15,8 @@ export default async function SettingsPage() {
   const jar = await cookies();
   const t = makeT(getLang(jar.toString()).code);
   const b = user.businessId;
+  // "Your active sessions" — the signed-in user's own login tokens (never anyone else's)
+  const sessionsList = await mySessions();
   const [business] = await db.select().from(businesses).where(eq(businesses.id, b)).limit(1);
   const userList = await db.select({ id: users.id, name: users.name, email: users.email, role: users.role, active: users.active, phone: users.phone }).from(users).where(eq(users.businessId, b));
   const sms = await db.select().from(salesmen).where(eq(salesmen.businessId, b));
@@ -50,6 +52,7 @@ export default async function SettingsPage() {
         business={business} users={userList} salesmen={sms} routes={routes} audit={audit} closings={closings} warehouses={whs}
         employees={staff} accounts={accs} demo={demo} mailbox={mailbox} isOwner={user.role === "owner"} isDemoOwner={isDemoOwner}
         canManage={["owner", "manager"].includes(user.role)}
+        mySessions={sessionsList}
       />
     </div>
   );

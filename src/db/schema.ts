@@ -101,6 +101,8 @@ export const sessions = pgTable("sessions", {
   token: text("token").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
   grantId: integer("grant_id"),
+  agent: text("agent"), // browser/user-agent captured at login — powers the "Your active sessions" panel
+  createdAt: timestamp("created_at").defaultNow(),
   expiresAt: timestamp("expires_at").notNull(),
 });
 

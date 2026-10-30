@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { users, accounts, salesmen, salesmanRoutes, businesses, auditLogs, dayClosings, warehouses, branches, employees, expenseCategories, demoGrants, demoUsage, sessions, sales, payments, stockMovements, ownerMailbox, purchases, salesReturns, purchaseReturns, expenses, accountTransfers, passwordResets } from "@/db/schema";
-import { hashPassword } from "@/server/auth.mjs";
+import { hashPassword, signOutOtherSessions } from "@/server/auth.mjs";
 import { api, body } from "@/server/api.mjs";
 import { addAccount, closeDay, addExpense, DEMO_MODULES, DEMO_LIMIT } from "@/server/services.mjs";
 import { BizError, canOverride, todayStr } from "@/server/util.mjs";
@@ -40,7 +40,7 @@ export const GET = api(async ({ user }) => {
 
 export const POST = api(async ({ user, req }) => {
   const b = await body(req);
-  if (!["owner", "manager"].includes(user.role) && !["add_account", "close_day", "set_biz_type"].includes(b.action)) {
+  if (!["owner", "manager"].includes(user.role) && !["add_account", "close_day", "set_biz_type", "signout_others"].includes(b.action)) {
     throw new BizError("Only owner/manager can change settings", 403);
   }
   if (b.action === "add_account" && !["owner", "manager", "accountant"].includes(user.role)) {
@@ -84,6 +84,11 @@ export const POST = api(async ({ user, req }) => {
       if (u.id === user.id) throw new BizError("You cannot deactivate your own account");
       await db.update(users).set({ active: !u.active }).where(eq(users.id, u.id));
       return { ok: true };
+    }
+    case "signout_others": {
+      // self-scoped: every role may end its own other sessions, nobody else's
+      const ended = await signOutOtherSessions(user.id);
+      return { ok: true, ended };
     }
     case "update_user": {
       const [u] = await db.select().from(users).where(eq(users.id, Number(b.id))).limit(1);
