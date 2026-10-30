@@ -72,6 +72,9 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_demo_usage_grant ON demo_usage(grant_id, module)`,
   `ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_demo boolean DEFAULT false`,
   `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS grant_id integer`,
+  // active-sessions panel: browser identity captured at login + sign-in time
+  `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS agent text`,
+  `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at timestamp DEFAULT now()`,
   `UPDATE businesses SET is_demo = true WHERE EXISTS (SELECT 1 FROM users u WHERE u.business_id = businesses.id AND u.email = 'owner@afridifabrics.pk')`,
   // remove retired public demo accounts (accountant/salesman) if present, nulling references first
   `UPDATE sales SET salesman_id = NULL WHERE salesman_id IN (SELECT id FROM users WHERE email IN ('accountant@afridifabrics.pk','asad@afridifabrics.pk'))`,
